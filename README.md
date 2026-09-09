@@ -198,7 +198,7 @@ npm --workspace @web-agents/roundtable-product run test:launcher
 - 当前版本：`1.0.1`。
 - 发布标签：`tablellm-v1.0.1`。
 - 共享底座：`@web-agents/local-core@1.0.0`，固定到 `local-core-v1.0.0` 标签。
-- 插件产品位于独立的 `webagent` 分支；两个产品不互相合并。
+- 插件产品位于独立仓库 [zhuxice-ctrl/web_agents](https://github.com/zhuxice-ctrl/web_agents) 的 `webagent` 分支；两个产品不互相合并。
 
 ## 许可证
 
