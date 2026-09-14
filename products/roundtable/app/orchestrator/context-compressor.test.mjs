@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  annotateCompressionRevision,
   compressSessionContext,
+  diffCompressionRevisions,
   getActiveCompression,
+  rollbackCompressionFields,
   reviseSessionCompression,
 } from "./context-compressor.mjs";
 
@@ -319,4 +322,119 @@ test("user revision recomputes quality metrics", () => {
   assert.equal(revised.metrics.unclassifiedEntryCount, 0);
   assert.equal(revised.metrics.classifiedShare, 1);
   assert.equal(revised.metrics.droppedUnclassifiedEntryCount, 0);
+});
+
+test("diffCompressionRevisions reports per-bucket entry changes between revisions", () => {
+  const session = createSession();
+  compressSessionContext(session, {
+    prompt: buildPrompt(session),
+    buildPrompt,
+    estimatePromptTokens,
+    estimateEventTokens: () => 3,
+    now: () => "2026-07-18T08:00:00.000Z",
+    idFactory: () => "compression-1",
+  });
+  reviseSessionCompression(session, {
+    baseRevision: 1,
+    consensus: [{ id: "consensus:revised", text: "原始账本不可修改且可审计", sourceEventIds: ["e1"] }],
+    evidence: [
+      { id: "evidence:e3", text: "ledger.jsonl 的哈希保持一致且只增", sourceEventIds: ["e3"] },
+      { id: "evidence:added", text: "新增证据", sourceEventIds: ["e5"] },
+    ],
+  });
+
+  const diff = diffCompressionRevisions(session, { from: 1, to: 2 });
+  assert.equal(diff.from.revision, 1);
+  assert.equal(diff.to.revision, 2);
+  assert.equal(diff.counts.added, 2);
+  assert.equal(diff.counts.removed, 1);
+  assert.equal(diff.counts.changed, 1);
+  assert.deepEqual(diff.buckets.consensus.added.map((entry) => entry.id), ["consensus:revised"]);
+  assert.deepEqual(diff.buckets.consensus.removed.map((entry) => entry.id), ["consensus:e1"]);
+  assert.equal(diff.buckets.evidence.changed[0].fromText, "ledger.jsonl 的哈希保持一致");
+  assert.equal(diff.buckets.evidence.changed[0].toText, "ledger.jsonl 的哈希保持一致且只增");
+  assert.equal(diff.buckets.evidence.added[0].text, "新增证据");
+
+  assert.throws(() => diffCompressionRevisions(session, { from: 1, to: 9 }), /COMPRESSION_REVISION_NOT_FOUND/);
+  assert.throws(() => diffCompressionRevisions({}, { from: 1, to: 2 }), /COMPRESSION_NOT_FOUND/);
+});
+
+test("rollbackCompressionFields restores selected buckets from an earlier revision", () => {
+  const session = createSession();
+  compressSessionContext(session, {
+    prompt: buildPrompt(session),
+    buildPrompt,
+    estimatePromptTokens,
+    estimateEventTokens: () => 3,
+    now: () => "2026-07-18T08:00:00.000Z",
+    idFactory: () => "compression-1",
+  });
+  reviseSessionCompression(session, {
+    baseRevision: 1,
+    consensus: [{ id: "consensus:revised", text: "原始账本不可修改且可审计", sourceEventIds: ["e1"] }],
+    evidence: [
+      { id: "evidence:e3", text: "ledger.jsonl 的哈希保持一致且只增", sourceEventIds: ["e3"] },
+      { id: "evidence:added", text: "新增证据", sourceEventIds: ["e5"] },
+    ],
+  });
+
+  const rolledBack = rollbackCompressionFields(session, {
+    baseRevision: 2,
+    targetRevision: 1,
+    fields: ["consensus"],
+  }, {
+    now: () => "2026-07-18T08:30:00.000Z",
+    idFactory: () => "compression-rollback-1",
+  });
+  assert.equal(rolledBack.revision, 3);
+  assert.equal(rolledBack.reason, "field_rollback");
+  assert.deepEqual(rolledBack.rollback, { targetRevision: 1, fields: ["consensus"] });
+  assert.deepEqual(rolledBack.consensus.map((entry) => entry.id), ["consensus:e1"]);
+  assert.equal(rolledBack.consensus[0].text, "原始账本不可修改");
+  assert.equal(rolledBack.evidence[0].text, "ledger.jsonl 的哈希保持一致且只增");
+  assert.deepEqual(rolledBack.evidence.map((entry) => entry.id), ["evidence:e3", "evidence:added"]);
+  assert.equal(session.context.compression.revisions.length, 3);
+
+  assert.throws(
+    () => rollbackCompressionFields(session, { baseRevision: 1, targetRevision: 1, fields: ["consensus"] }),
+    /STALE_COMPRESSION_REVISION/,
+  );
+  assert.throws(
+    () => rollbackCompressionFields(session, { baseRevision: 3, targetRevision: 1, fields: ["nonsense"] }),
+    /INVALID_COMPRESSION_FIELDS/,
+  );
+  assert.throws(
+    () => rollbackCompressionFields(session, { baseRevision: 3, targetRevision: 3, fields: ["consensus"] }),
+    /INVALID_COMPRESSION_REVISION/,
+  );
+});
+
+test("annotateCompressionRevision attaches review notes to ledger revisions", () => {
+  const session = createSession();
+  compressSessionContext(session, {
+    prompt: buildPrompt(session),
+    buildPrompt,
+    estimatePromptTokens,
+    estimateEventTokens: () => 3,
+    now: () => "2026-07-18T08:00:00.000Z",
+    idFactory: () => "compression-1",
+  });
+
+  const annotated = annotateCompressionRevision(session, { revision: 1, note: "  首版摘要已核对  " }, {
+    now: () => "2026-07-18T09:00:00.000Z",
+    annotationIdFactory: () => "annotation-1",
+  });
+  assert.equal(annotated.annotation.id, "annotation-1");
+  assert.equal(annotated.annotation.note, "首版摘要已核对");
+  assert.equal(annotated.revision.revision, 1);
+  assert.equal(annotated.revision.annotations.length, 1);
+
+  const active = getActiveCompression(session);
+  assert.equal(active.annotations.length, 1);
+  assert.equal(active.annotations[0].note, "首版摘要已核对");
+  assert.equal(session.context.compression.revisions[0].annotations[0].id, "annotation-1");
+
+  assert.throws(() => annotateCompressionRevision(session, { revision: 1, note: "   " }), /INVALID_COMPRESSION_NOTE/);
+  assert.throws(() => annotateCompressionRevision(session, { revision: 4, note: "备注" }), /COMPRESSION_REVISION_NOT_FOUND/);
+  assert.throws(() => annotateCompressionRevision({}, { revision: 1, note: "备注" }), /COMPRESSION_NOT_FOUND/);
 });

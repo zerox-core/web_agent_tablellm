@@ -1116,3 +1116,141 @@ test("compression revision API preserves the ledger and records an audit event",
   const audit = await store.listAudit({ sessionId: session.id });
   assert.equal(audit.some((event) => event.kind === "compression_revision" && event.revision === 2), true);
 });
+
+test("compression diff, field rollback and annotation APIs review revisions end to end", async (t) => {
+  const { baseUrl, server } = await startServer(t);
+  const session = await createSession(baseUrl, { mode: "mock", defaultRounds: 1 });
+  const store = server.runtime.store;
+  await store.appendEvents(session.id, [
+    { id: "compression-source-1", type: "reply", providerId: "deepseek", content: "共识：账本只追加" },
+    { id: "compression-source-2", type: "reply", providerId: "deepseek", content: "证据：ledger 只追加" },
+  ]);
+  await store.updateSession(session.id, (current) => {
+    compressSessionContext(current, {
+      prompt: "x".repeat(110000),
+      estimatePromptTokens: () => 110000,
+      estimateEventTokens: () => 10000,
+      buildPrompt: () => "x".repeat(15000),
+      idFactory: () => "compression-api-1",
+      now: () => "2026-07-18T09:00:00.000Z",
+    });
+    return current;
+  });
+  const compressionUrl = `${baseUrl}/api/sessions/${encodeURIComponent(session.id)}/context/compression`;
+
+  const revised = await jsonRequest(`${compressionUrl}/revise`, {
+    method: "POST",
+    body: JSON.stringify({
+      baseRevision: 1,
+      consensus: [{ id: "consensus-corrected", text: "账本只追加且可审计", sourceEventIds: ["compression-source-1"] }],
+      evidence: [{ id: "evidence-corrected", text: "ledger 只追加", sourceEventIds: ["compression-source-2"] }],
+    }),
+  });
+  assert.equal(revised.response.status, 200);
+  assert.equal(revised.payload.active.revision, 2);
+
+  const diff = await jsonRequest(`${compressionUrl}/diff?from=1&to=2`);
+  assert.equal(diff.response.status, 200);
+  assert.equal(diff.payload.diff.counts.added, 2);
+  assert.equal(diff.payload.diff.counts.removed, 1);
+  assert.equal(diff.payload.diff.counts.changed, 0);
+  assert.deepEqual(diff.payload.diff.buckets.consensus.added.map((entry) => entry.id), ["consensus-corrected"]);
+  assert.deepEqual(diff.payload.diff.buckets.consensus.removed.map((entry) => entry.id), ["consensus:compression-source-1"]);
+  assert.deepEqual(diff.payload.diff.buckets.evidence.added.map((entry) => entry.id), ["evidence-corrected"]);
+  assert.deepEqual(diff.payload.diff.buckets.evidence.removed, []);
+
+  const rollback = await jsonRequest(`${compressionUrl}/rollback`, {
+    method: "POST",
+    body: JSON.stringify({ baseRevision: 2, targetRevision: 1, fields: ["consensus"] }),
+  });
+  assert.equal(rollback.response.status, 200);
+  assert.equal(rollback.payload.active.revision, 3);
+  assert.equal(rollback.payload.active.reason, "field_rollback");
+  assert.deepEqual(rollback.payload.active.rollback, { targetRevision: 1, fields: ["consensus"] });
+  assert.equal(rollback.payload.active.consensus[0].text, "账本只追加");
+  assert.equal(rollback.payload.active.evidence[0].id, "evidence-corrected");
+
+  const annotate = await jsonRequest(`${compressionUrl}/annotate`, {
+    method: "POST",
+    body: JSON.stringify({ revision: 3, note: "已核对回滚结果" }),
+  });
+  assert.equal(annotate.response.status, 200);
+  assert.equal(annotate.payload.revision.revision, 3);
+  assert.equal(annotate.payload.revision.annotations.length, 1);
+  assert.equal(annotate.payload.annotation.note, "已核对回滚结果");
+
+  const read = await jsonRequest(compressionUrl);
+  assert.equal(read.response.status, 200);
+  assert.equal(read.payload.active.annotations[0].note, "已核对回滚结果");
+  assert.equal(read.payload.compression.revisions.length, 3);
+
+  const audit = await store.listAudit({ sessionId: session.id });
+  assert.equal(audit.some((event) => event.kind === "compression_rollback" && event.revision === 3), true);
+  assert.equal(audit.some((event) => event.kind === "compression_annotation" && event.revision === 3), true);
+});
+
+test("compression review APIs reject missing state, unknown revisions and invalid payloads", async (t) => {
+  const { baseUrl, server } = await startServer(t);
+  const session = await createSession(baseUrl, { mode: "mock", defaultRounds: 1 });
+  const store = server.runtime.store;
+  const compressionUrl = `${baseUrl}/api/sessions/${encodeURIComponent(session.id)}/context/compression`;
+
+  const diffMissing = await jsonRequest(`${compressionUrl}/diff?from=1&to=2`);
+  assert.equal(diffMissing.response.status, 404);
+  assert.equal(diffMissing.payload.error, "COMPRESSION_NOT_FOUND");
+
+  await store.appendEvents(session.id, [
+    { id: "compression-source-1", type: "reply", providerId: "deepseek", content: "共识：账本只追加" },
+    { id: "compression-source-2", type: "reply", providerId: "deepseek", content: "普通观点" },
+  ]);
+  await store.updateSession(session.id, (current) => {
+    compressSessionContext(current, {
+      prompt: "x".repeat(110000),
+      estimatePromptTokens: () => 110000,
+      estimateEventTokens: () => 10000,
+      buildPrompt: () => "x".repeat(15000),
+      idFactory: () => "compression-api-1",
+      now: () => "2026-07-18T09:00:00.000Z",
+    });
+    return current;
+  });
+
+  const diffNoPredecessor = await jsonRequest(compressionUrl + "/diff");
+  assert.equal(diffNoPredecessor.response.status, 400);
+  assert.equal(diffNoPredecessor.payload.error, "INVALID_COMPRESSION_REVISION");
+
+  const revised = await jsonRequest(`${compressionUrl}/revise`, {
+    method: "POST",
+    body: JSON.stringify({
+      baseRevision: 1,
+      consensus: [{ id: "consensus-corrected", text: "账本只追加且可审计", sourceEventIds: ["compression-source-1"] }],
+    }),
+  });
+  assert.equal(revised.response.status, 200);
+  assert.equal(revised.payload.active.revision, 2);
+
+  const diffUnknown = await jsonRequest(`${compressionUrl}/diff?from=1&to=9`);
+  assert.equal(diffUnknown.response.status, 404);
+  assert.equal(diffUnknown.payload.error, "COMPRESSION_REVISION_NOT_FOUND");
+
+  const rollbackStale = await jsonRequest(`${compressionUrl}/rollback`, {
+    method: "POST",
+    body: JSON.stringify({ baseRevision: 5, targetRevision: 1, fields: ["consensus"] }),
+  });
+  assert.equal(rollbackStale.response.status, 409);
+  assert.equal(rollbackStale.payload.error, "STALE_COMPRESSION_REVISION");
+
+  const rollbackInvalidField = await jsonRequest(`${compressionUrl}/rollback`, {
+    method: "POST",
+    body: JSON.stringify({ baseRevision: 2, targetRevision: 1, fields: ["nonsense"] }),
+  });
+  assert.equal(rollbackInvalidField.response.status, 400);
+  assert.equal(rollbackInvalidField.payload.error, "INVALID_COMPRESSION_FIELDS");
+
+  const annotateEmpty = await jsonRequest(`${compressionUrl}/annotate`, {
+    method: "POST",
+    body: JSON.stringify({ revision: 1, note: "   " }),
+  });
+  assert.equal(annotateEmpty.response.status, 400);
+  assert.equal(annotateEmpty.payload.error, "INVALID_COMPRESSION_NOTE");
+});

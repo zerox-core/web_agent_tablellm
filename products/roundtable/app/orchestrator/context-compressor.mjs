@@ -293,5 +293,117 @@ export function reviseSessionCompression(session, payload = {}, options = {}) {
   return state.active;
 }
 
+function requireCompressionState(session) {
+  const state = session?.context?.compression;
+  if (!state?.active) throw compressionError("COMPRESSION_NOT_FOUND");
+  return state;
+}
+
+function revisionByNumber(state, revisionNumber) {
+  const target = Number(revisionNumber);
+  if (!Number.isFinite(target) || target < 1) throw compressionError("INVALID_COMPRESSION_REVISION");
+  const revision = (state.revisions || []).find((candidate) => Number(candidate.revision) === target);
+  if (!revision) throw compressionError("COMPRESSION_REVISION_NOT_FOUND");
+  return revision;
+}
+
+export function diffCompressionRevisions(session, payload = {}) {
+  const state = requireCompressionState(session);
+  const toRevision = revisionByNumber(state, payload.to ?? state.active.revision);
+  const fromRevision = revisionByNumber(state, payload.from ?? Number(toRevision.revision) - 1);
+  const buckets = {};
+  let addedCount = 0;
+  let removedCount = 0;
+  let changedCount = 0;
+  for (const bucket of BUCKETS) {
+    const before = new Map((fromRevision[bucket] || []).map((entry) => [entry.id, entry]));
+    const after = new Map((toRevision[bucket] || []).map((entry) => [entry.id, entry]));
+    const added = [];
+    const removed = [];
+    const changed = [];
+    for (const [id, entry] of after) {
+      const previous = before.get(id);
+      if (!previous) {
+        added.push({ id, text: entry.text, sourceEventIds: [...entry.sourceEventIds] });
+        addedCount += 1;
+      } else if (previous.text !== entry.text) {
+        changed.push({ id, fromText: previous.text, toText: entry.text, sourceEventIds: [...entry.sourceEventIds] });
+        changedCount += 1;
+      }
+    }
+    for (const [id, entry] of before) {
+      if (!after.has(id)) {
+        removed.push({ id, text: entry.text, sourceEventIds: [...entry.sourceEventIds] });
+        removedCount += 1;
+      }
+    }
+    buckets[bucket] = { added, removed, changed };
+  }
+  return {
+    schema: COMPRESSION_SCHEMA,
+    from: { revision: fromRevision.revision, id: fromRevision.id },
+    to: { revision: toRevision.revision, id: toRevision.id },
+    counts: { added: addedCount, removed: removedCount, changed: changedCount },
+    buckets,
+  };
+}
+
+export function rollbackCompressionFields(session, payload = {}, options = {}) {
+  const state = requireCompressionState(session);
+  const active = state.active;
+  if (Number(payload.baseRevision) !== Number(active.revision)) {
+    throw compressionError("STALE_COMPRESSION_REVISION");
+  }
+  const targetRevision = revisionByNumber(state, payload.targetRevision);
+  if (Number(targetRevision.revision) === Number(active.revision)) {
+    throw compressionError("INVALID_COMPRESSION_REVISION");
+  }
+  const fields = [...new Set((Array.isArray(payload.fields) ? payload.fields : []).map((field) => String(field)))];
+  if (fields.length === 0 || fields.some((field) => !BUCKETS.includes(field))) {
+    throw compressionError("INVALID_COMPRESSION_FIELDS");
+  }
+  const knownEventIds = new Set((session.events || []).map((event) => String(event.id)));
+  const entryIds = new Set();
+  const buckets = {};
+  for (const bucket of BUCKETS) {
+    const source = fields.includes(bucket) ? targetRevision : active;
+    buckets[bucket] = normalizedEntries(source[bucket] ?? [], bucket, knownEventIds, entryIds);
+  }
+  const revision = {
+    ...structuredClone(active),
+    id: (options.idFactory || randomUUID)(),
+    revision: Number(active.revision) + 1,
+    createdAt: timestamp(options.now),
+    reason: "field_rollback",
+    rollback: { targetRevision: Number(targetRevision.revision), fields },
+    ...buckets,
+  };
+  revision.metrics = revisionMetrics(revision, 0);
+  const nextState = stateWithRevision(state, revision);
+  session.context.compression = nextState;
+  return nextState.active;
+}
+
+const ANNOTATION_NOTE_MAX_LENGTH = 2000;
+
+export function annotateCompressionRevision(session, payload = {}, options = {}) {
+  const state = requireCompressionState(session);
+  const revision = revisionByNumber(state, payload.revision ?? state.active.revision);
+  const note = String(payload.note ?? "").trim();
+  if (!note || note.length > ANNOTATION_NOTE_MAX_LENGTH) {
+    throw compressionError("INVALID_COMPRESSION_NOTE");
+  }
+  const annotation = {
+    id: (options.annotationIdFactory || randomUUID)(),
+    note,
+    createdAt: timestamp(options.now),
+  };
+  revision.annotations = [...(revision.annotations || []), structuredClone(annotation)];
+  if (Number(state.active.revision) === Number(revision.revision)) {
+    state.active.annotations = structuredClone(revision.annotations);
+  }
+  return { revision: structuredClone(revision), annotation: structuredClone(annotation) };
+}
+
 export const COMPRESSION_BUCKETS = Object.freeze([...BUCKETS]);
 export const CONTEXT_COMPRESSION_SCHEMA = COMPRESSION_SCHEMA;

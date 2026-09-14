@@ -32,7 +32,13 @@ import { ArtifactWriter } from "./orchestrator/artifact-writer.mjs";
 import { HandoffManager } from "./orchestrator/handoff-manager.mjs";
 import { parseRoundtableCommand } from "./orchestrator/command-parser.mjs";
 import { buildPrompt } from "./orchestrator/context-builder.mjs";
-import { getActiveCompression, reviseSessionCompression } from "./orchestrator/context-compressor.mjs";
+import {
+  annotateCompressionRevision,
+  diffCompressionRevisions,
+  getActiveCompression,
+  rollbackCompressionFields,
+  reviseSessionCompression,
+} from "./orchestrator/context-compressor.mjs";
 import { EventBus } from "./orchestrator/event-bus.mjs";
 import { RunRegistry } from "./orchestrator/run-registry.mjs";
 import { RoundtableScheduler, createTurnPlan } from "./orchestrator/scheduler.mjs";
@@ -178,6 +184,7 @@ function errorStatus(error) {
     "THREAD_NOT_FOUND",
     "PROVIDER_NOT_FOUND",
     "COMPRESSION_NOT_FOUND",
+    "COMPRESSION_REVISION_NOT_FOUND",
   ].includes(code)) return 404;
   if ([
     "MANUAL_BROWSER_NAVIGATION_DISABLED",
@@ -217,6 +224,9 @@ function errorStatus(error) {
     "INVALID_COMPRESSION_BUCKET",
     "INVALID_COMPRESSION_ENTRY",
     "DUPLICATE_COMPRESSION_ENTRY",
+    "INVALID_COMPRESSION_REVISION",
+    "INVALID_COMPRESSION_FIELDS",
+    "INVALID_COMPRESSION_NOTE",
     "INTERVENTION_TOO_LONG",
     "ROLE_OVERRIDE_PROVIDER_NOT_SELECTED",
   ].includes(code)) return 400;
@@ -1411,6 +1421,49 @@ async function handleSessionRoute(request, response, runtime, url, parts) {
     });
     runtime.eventBus.emit({ type: "session.compression_revised", sessionId, revision: revised.revision });
     return sendJson(response, 200, { ok: true, compression: session.context.compression, active: revised, session });
+  }
+  if (action === "context" && parts.length === 6 && parts[4] === "compression" && parts[5] === "diff" && request.method === "GET") {
+    const session = await store.readSession(sessionId);
+    const diff = diffCompressionRevisions(session, {
+      from: url.searchParams.get("from"),
+      to: url.searchParams.get("to"),
+    });
+    return sendJson(response, 200, { ok: true, diff });
+  }
+  if (action === "context" && parts.length === 6 && parts[4] === "compression" && parts[5] === "rollback" && request.method === "POST") {
+    const payload = await readJson(request);
+    let rolledBack;
+    const session = await store.updateSession(sessionId, (current) => {
+      rolledBack = rollbackCompressionFields(current, payload);
+      current.updatedAt = new Date().toISOString();
+      return current;
+    });
+    await store.appendAudit({
+      kind: "compression_rollback",
+      sessionId,
+      revision: rolledBack.revision,
+      targetRevision: rolledBack.rollback.targetRevision,
+      fields: rolledBack.rollback.fields,
+    });
+    runtime.eventBus.emit({ type: "session.compression_rolled_back", sessionId, revision: rolledBack.revision });
+    return sendJson(response, 200, { ok: true, compression: session.context.compression, active: rolledBack });
+  }
+  if (action === "context" && parts.length === 6 && parts[4] === "compression" && parts[5] === "annotate" && request.method === "POST") {
+    const payload = await readJson(request);
+    let annotated;
+    const session = await store.updateSession(sessionId, (current) => {
+      annotated = annotateCompressionRevision(current, payload);
+      current.updatedAt = new Date().toISOString();
+      return current;
+    });
+    await store.appendAudit({
+      kind: "compression_annotation",
+      sessionId,
+      revision: annotated.revision.revision,
+      annotationId: annotated.annotation.id,
+    });
+    runtime.eventBus.emit({ type: "session.compression_annotated", sessionId, revision: annotated.revision.revision });
+    return sendJson(response, 200, { ok: true, revision: annotated.revision, annotation: annotated.annotation });
   }
   if (action === "runs" && parts.length === 6) {
     return handleRunAction(request, response, runtime, services, sessionId, parts[4], parts[5]);
