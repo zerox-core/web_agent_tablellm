@@ -1,23 +1,64 @@
 # Provider Adapter Verification Matrix
 
-Date started: 2026-06-30
+Two eras of seat automation exist in this project's history. The current era is
+the CDP workbench: seats are driven through the dedicated Chrome CDP channel
+by the adapters under `products/roundtable/app/automation/adapters/`. The
+extension-era evidence at the bottom is archived for traceability and no longer
+applies to the current code.
 
-## Minimal Acceptance Checks
+## Minimal Acceptance Checks (CDP Era)
 
-Each provider must be checked against:
+Each seat must be verified against all six, with a real browser session:
 
-1. Content script loads on the provider page.
-2. Active adapter is selected for the hostname.
-3. MCP sidebar connects to the configured local SSE endpoint.
-4. MCP button or popover appears in a stable location.
-5. A short prompt can be inserted into the native composer.
-6. The prompt can be submitted.
-7. Tool-call style content can be detected.
-8. Tool result text can be inserted back into the conversation.
-9. SPA refresh or navigation restores the integration.
-10. Failure states are visible in logs without breaking the page.
+1. Login: losing the session produces `LOGIN_REQUIRED` instead of a silent failure.
+2. Input: `findComposer` + `insertPrompt` round-trip retains the prompt.
+3. Submit: `submit` clicks a send control or falls back to Enter.
+4. Streaming capture: `collectResponseCandidates` returns reply text with stable identities (no cross-seat or cross-turn mixing).
+5. Completion detection: `isBusy` flips from true to false when generation ends.
+6. Page reconnect: after a CDP disconnect the worker recovers (page lease rebuilt).
 
-## Providers
+## Current Matrix (CDP Era)
+
+Status reflects the project brief as of 2026-09-14. "Stable seat" here means:
+adapter registered, wired into the workbench, and running in the user's real
+sessions; live-site re-verification was not re-run as part of the 2026-09-14
+documentation pass. Automated suites run against fake-provider e2e, not live
+provider DOM.
+
+| Provider | Adapter | Status | Evidence |
+| --- | --- | --- | --- |
+| ChatGPT | `ChatGptAdapter` | stable seat | Project brief 2026-09-14: stable automated seat; adapter registered in `adapters/index.mjs`; selectors cover `#prompt-textarea`, `data-testid` send/stop, `data-message-author-role='assistant'`. |
+| DeepSeek | `DeepSeekAdapter` | stable seat | Project brief 2026-09-14: stable automated seat; adapter registered; selectors cover `.ds-markdown` responses and 发送/Stop controls. |
+| 豆包 (Doubao) | `DoubaoAdapter` | stable seat | Project brief 2026-09-14: stable automated seat; adapter registered; first submit selector `button[class*='g-send-msg-btn']` originated from the 2026-06-30 extension-era observation (see archive below). |
+| Gemini | — | not-started | `providers.mjs` lists `automation: "planned"`; no adapter file registered. |
+| Qwen | — | not-started | `providers.mjs` lists `automation: "planned"`; no adapter file registered. |
+| Kimi | — | not-started | `providers.mjs` lists `automation: "planned"`; no adapter file registered. |
+| GLM | — | not-started | `providers.mjs` lists `automation: "planned"`; no adapter file registered. |
+| Grok | — | not-started | `providers.mjs` lists `automation: "planned"`; no adapter file registered. |
+| Google AI Studio | — | not-started | `providers.mjs` lists `automation: "planned"`; no adapter file registered. |
+
+## Status Values (CDP Era)
+
+- `stable seat`: adapter registered and running in real workbench sessions per project brief.
+- `pass`: all six acceptance checks verified with evidence this branch.
+- `degraded`: checks 1-3 pass; optional behavior missing.
+- `blocked`: cannot be verified (login, region, DOM, or provider behavior).
+- `not-started`: not verified in this branch; no adapter registered.
+
+## Evidence Format
+
+One short note per verification run, appended to the provider's Evidence cell:
+
+```text
+YYYY-MM-DD: pass. Browser: <Chrome x / Edge x>. Page: <url>. Checks: 1-6. Notes: <what deviated>.
+```
+
+## Archived: Extension-Era Evidence (2026-06-30)
+
+Recorded against the former SuperAssistant extension (content script + MCP
+sidebar + button injection) in the retired web_agents workspace. That
+integration is not part of this repository; notes are kept because one
+observation (the Doubao send button) was carried forward into the CDP adapter.
 
 | Provider | Domain Pattern | Adapter | Status | Evidence |
 | --- | --- | --- | --- | --- |
@@ -30,18 +71,3 @@ Each provider must be checked against:
 | Grok | `grok.com`, `x.com`, `twitter.com` | `GrokAdapter` | blocked | 2026-06-30: blocked. Browser: Edge 149 with unpacked extension. Page: https://grok.com/. Checks: 1-2 partial. Notes: extension service worker loaded and Grok-specific MCP style/sidebar host appeared, but the Grok UI did not reach a composer before the Edge process exited; popover, text insertion, and submit were not verified. |
 | Google AI Studio | `aistudio.google.com` | `AIStudioAdapter` | blocked | 2026-06-30: blocked. Browser: Edge 149. Page: https://aistudio.google.com/welcome. Checks: 1-2 partial; composer, SSE, popover-near-composer, text insertion, and submit were not verified. Notes: unauthenticated welcome/get-started page blocked composer access. |
 | Qwen | `chat.qwen.ai`, `qwen.ai` | `QwenAdapter` | blocked | 2026-06-30: blocked. Browser: Edge 149 with unpacked extension. Page: https://chat.qwen.ai/. Checks: none. Notes: navigation failed with ERR_CONNECTION_CLOSED and landed on chrome-error://chromewebdata/; content script, adapter activation, popover, text insertion, submit, and CodeMirror/Monaco extraction were not verified. |
-
-## Status Values
-
-- `not-started`: provider has not been verified in this branch.
-- `pass`: provider satisfies all minimal acceptance checks.
-- `degraded`: provider works for text insertion and submit but misses optional behavior.
-- `blocked`: provider cannot be verified because login, region, DOM, or provider behavior prevents a minimal run.
-
-## Evidence Format
-
-Use one short evidence note per provider:
-
-```text
-2026-06-30: pass. Browser: Edge. Page: https://www.doubao.com/. Checks: 1-10. Notes: text insertion, submit, popover, and result reinsertion verified.
-```
