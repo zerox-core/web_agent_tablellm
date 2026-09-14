@@ -517,3 +517,21 @@ test("extension relay accepts the legacy open-provider metadata contract", async
 
   assert.equal((await completion).data.label, "豆包");
 });
+
+test("extension relay accepts the full mvp provider list for tab discovery", async (t) => {
+  const relay = new ExtensionRelay({ commandTimeoutMs: 1000 });
+  t.after(() => relay.close());
+  registerVerified(relay);
+
+  const providers = ["chatgpt", "deepseek", "doubao", "kimi", "glm"];
+  const completion = relay.dispatch({ type: "tabs:discover-providers", providers });
+  const command = relay.poll("client-12345678");
+  assert.deepEqual(command.request.providers, providers);
+
+  relay.complete("client-12345678", command.commandId, {
+    ok: true,
+    type: "tabs:discover-providers",
+    data: { tabs: [] },
+  });
+  assert.deepEqual(await completion, { ok: true, type: "tabs:discover-providers", data: { tabs: [] } });
+});

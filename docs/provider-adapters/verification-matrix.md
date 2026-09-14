@@ -30,10 +30,10 @@ provider DOM.
 | ChatGPT | `ChatGptAdapter` | stable seat | Project brief 2026-09-14: stable automated seat; adapter registered in `adapters/index.mjs`; selectors cover `#prompt-textarea`, `data-testid` send/stop, `data-message-author-role='assistant'`. |
 | DeepSeek | `DeepSeekAdapter` | stable seat | Project brief 2026-09-14: stable automated seat; adapter registered; selectors cover `.ds-markdown` responses and 发送/Stop controls. |
 | 豆包 (Doubao) | `DoubaoAdapter` | stable seat | Project brief 2026-09-14: stable automated seat; adapter registered; first submit selector `button[class*='g-send-msg-btn']` originated from the 2026-06-30 extension-era observation (see archive below). |
-| Gemini | — | not-started | `providers.mjs` lists `automation: "planned"`; no adapter file registered. |
+| Gemini | — | not-started | `providers.mjs` lists `automation: "planned"`; 2026-09-14 user decision: do not add Gemini in the current seat expansion. |
 | Qwen | — | not-started | `providers.mjs` lists `automation: "planned"`; no adapter file registered. |
-| Kimi | — | not-started | `providers.mjs` lists `automation: "planned"`; no adapter file registered. |
-| GLM | — | not-started | `providers.mjs` lists `automation: "planned"`; no adapter file registered. |
+| Kimi | `KimiAdapter` | registered, unverified | 2026-09-14: registered per user request with URL `https://www.kimi.com/agent?chat_enter_method=change_model`; selectors are provisional (shared composer/markdown conventions) and the six acceptance checks have not been run against the live site yet. |
+| GLM | `GlmAdapter` | registered, unverified | 2026-09-14: registered per user request with URL `https://chat.z.ai/`; selectors are provisional and the six acceptance checks have not been run against the live site yet. |
 | Grok | — | not-started | `providers.mjs` lists `automation: "planned"`; no adapter file registered. |
 | Google AI Studio | — | not-started | `providers.mjs` lists `automation: "planned"`; no adapter file registered. |
 
@@ -43,6 +43,7 @@ provider DOM.
 - `pass`: all six acceptance checks verified with evidence this branch.
 - `degraded`: checks 1-3 pass; optional behavior missing.
 - `blocked`: cannot be verified (login, region, DOM, or provider behavior).
+- `registered, unverified`: adapter registered and wired into the workbench, but none of the six acceptance checks have run against the live site yet (selectors are provisional).
 - `not-started`: not verified in this branch; no adapter registered.
 
 ## Evidence Format

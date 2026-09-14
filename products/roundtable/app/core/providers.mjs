@@ -6,8 +6,8 @@ export const PROVIDERS = [
   { id: "doubao", label: "豆包", url: "https://www.doubao.com/chat/", automation: "mvp" },
   { id: "gemini", label: "Gemini", url: "https://gemini.google.com/app", automation: "planned" },
   { id: "qwen", label: "Qwen", url: "https://chat.qwen.ai/", automation: "planned" },
-  { id: "kimi", label: "Kimi", url: "https://kimi.com/", automation: "planned" },
-  { id: "glm", label: "GLM", url: "https://chat.z.ai/", automation: "planned" },
+  { id: "kimi", label: "Kimi", url: "https://www.kimi.com/agent?chat_enter_method=change_model", automation: "mvp" },
+  { id: "glm", label: "GLM", url: "https://chat.z.ai/", automation: "mvp" },
   { id: "grok", label: "Grok", url: "https://grok.com/", automation: "planned" },
   { id: "google-ai-studio", label: "Google AI Studio", url: "https://aistudio.google.com/", automation: "planned" },
 ];
