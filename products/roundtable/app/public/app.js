@@ -37,6 +37,8 @@ const state = {
   activeRun: null,
   eventSource: null,
   refreshTimer: null,
+  sessionEventsCursor: null,
+  sessionEventsLastId: null,
   permission: null,
   layoutNodes: [],
   dragging: null,
@@ -87,6 +89,46 @@ async function api(url, options = {}) {
     throw error;
   }
   return payload;
+}
+
+const LARGE_COMMAND_THRESHOLD = 512 * 1024;
+
+async function sendCommandChunked(sessionId, text, command) {
+  const encoder = new TextEncoder();
+  const bytes = encoder.encode(text);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const expectedSha256 = Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  const base = `/api/sessions/${encodeURIComponent(sessionId)}/command-transfers`;
+  const begin = await api(base, { method: "POST", body: JSON.stringify({ expectedBytes: bytes.length, expectedSha256, command }) });
+  const chunkChars = Math.max(1, Math.floor((begin.chunkBytes || 1048576) / 4));
+  const chunks = [];
+  for (let offset = 0; offset < text.length;) {
+    let end = Math.min(offset + chunkChars, text.length);
+    if (end < text.length) {
+      const last = text.charCodeAt(end - 1);
+      if (last >= 0xd800 && last <= 0xdbff) end -= 1;
+    }
+    chunks.push(text.slice(offset, end));
+    offset = end;
+  }
+  let index = 0;
+  let attempts = 0;
+  while (index < chunks.length) {
+    try {
+      for (; index < chunks.length; index += 1) {
+        await api(`${base}/${encodeURIComponent(begin.transferId)}/chunks`, {
+          method: "POST",
+          body: JSON.stringify({ chunkIndex: index, content: chunks[index] }),
+        });
+      }
+    } catch (error) {
+      attempts += 1;
+      if (attempts >= 3) throw error;
+      const status = await api(`${base}/${encodeURIComponent(begin.transferId)}`);
+      index = Math.min(Number(status.receivedChunks) || 0, chunks.length);
+    }
+  }
+  return api(`${base}/${encodeURIComponent(begin.transferId)}/commit`, { method: "POST", body: JSON.stringify({}) });
 }
 
 function showToast(message, { error = false, timeout = 4800 } = {}) {
@@ -622,6 +664,13 @@ function renderAll() {
   renderRuntimeDetails();
 }
 
+function rememberEventCursor(session) {
+  const events = Array.isArray(session?.events) ? session.events : [];
+  const lastEvent = events.length ? events[events.length - 1] : null;
+  state.sessionEventsCursor = events.length;
+  state.sessionEventsLastId = lastEvent?.id || null;
+}
+
 async function loadSession(sessionId, { reconnect = true } = {}) {
   if (!sessionId) {
     state.session = null;
@@ -630,16 +679,49 @@ async function loadSession(sessionId, { reconnect = true } = {}) {
     state.executionIndex = [];
     state.pendingExecutions = [];
     state.activeRun = null;
+    state.sessionEventsCursor = null;
+    state.sessionEventsLastId = null;
     renderAll();
     return;
   }
   const previousSessionId = state.session?.id || null;
+  const incremental = previousSessionId === sessionId && state.sessionEventsCursor !== null;
   const [sessionResult, auditResult, executionResult] = await Promise.all([
-    api(`/api/sessions/${encodeURIComponent(sessionId)}`),
+    incremental
+      ? api(`/api/sessions/${encodeURIComponent(sessionId)}?events=none`)
+      : api(`/api/sessions/${encodeURIComponent(sessionId)}`),
     api(`/api/sessions/${encodeURIComponent(sessionId)}/audit`).catch(() => ({ audit: [] })),
     api(`/api/sessions/${encodeURIComponent(sessionId)}/executions`).catch(() => ({ executions: [], pending: [] })),
   ]);
-  state.session = sessionResult.session;
+  let session = sessionResult.session;
+  if (incremental) {
+    let merged = null;
+    try {
+      const cursorQuery = `after=${state.sessionEventsCursor}` + (state.sessionEventsLastId ? `&lastEventId=${encodeURIComponent(state.sessionEventsLastId)}` : "") + "&limit=500";
+      const incrementalEvents = await api(`/api/sessions/${encodeURIComponent(sessionId)}/events?${cursorQuery}`);
+      if (!incrementalEvents.resyncRequired) {
+        const baseEvents = Array.isArray(state.session?.events) ? state.session.events : [];
+        merged = baseEvents.concat(incrementalEvents.events || []);
+        let guard = 0;
+        while (merged.length < (Number(sessionResult.totalEvents) || 0) && guard < 8) {
+          guard += 1;
+          const lastEvent = merged.length ? merged[merged.length - 1] : null;
+          const moreQuery = `after=${merged.length}` + (lastEvent?.id ? `&lastEventId=${encodeURIComponent(lastEvent.id)}` : "") + "&limit=500";
+          const more = await api(`/api/sessions/${encodeURIComponent(sessionId)}/events?${moreQuery}`).catch(() => null);
+          if (!more || more.resyncRequired || !(more.events || []).length) break;
+          merged = merged.concat(more.events);
+        }
+      }
+    } catch { merged = null; }
+    if (merged !== null) {
+      session.events = merged;
+    } else {
+      const fullSession = await api(`/api/sessions/${encodeURIComponent(sessionId)}`);
+      session = fullSession.session;
+    }
+  }
+  rememberEventCursor(session);
+  state.session = session;
   state.executionIndex = executionResult.executions || [];
   state.pendingExecutions = executionResult.pending || [];
   turnProgressStore.syncSession(state.session);
@@ -1221,19 +1303,22 @@ $("#commandForm").addEventListener("submit", async (event) => {
   const preview = composerPreview();
   if (!preview.valid) return showToast("请输入指令并确认至少一个发言标签", { error: true });
   try {
-    const result = await api(`/api/sessions/${encodeURIComponent(state.session.id)}/commands`, {
-      method: "POST",
-      body: JSON.stringify({
-        text,
-        targets: preview.targets,
-        mentionTokens: state.tokens,
-        references: preview.references,
-        conversationMode: state.conversationMode,
-        rounds: preview.rounds,
-        roleOverrides: Object.fromEntries(Object.entries(state.roleOverrides).filter(([providerId]) => preview.targets.includes(providerId))),
-        settings: currentSettings(),
-      }),
-    });
+    const commandPayload = {
+      targets: preview.targets,
+      mentionTokens: state.tokens,
+      references: preview.references,
+      conversationMode: state.conversationMode,
+      rounds: preview.rounds,
+      roleOverrides: Object.fromEntries(Object.entries(state.roleOverrides).filter(([providerId]) => preview.targets.includes(providerId))),
+      settings: currentSettings(),
+    };
+    const commandBytes = new TextEncoder().encode(text).length;
+    const result = commandBytes > LARGE_COMMAND_THRESHOLD
+      ? await sendCommandChunked(state.session.id, text, commandPayload)
+      : await api(`/api/sessions/${encodeURIComponent(state.session.id)}/commands`, {
+          method: "POST",
+          body: JSON.stringify({ text, ...commandPayload }),
+        });
     state.session = result.session;
     state.activeRun = result.run || null;
     input.value = "";

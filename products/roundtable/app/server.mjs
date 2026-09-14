@@ -41,6 +41,7 @@ import {
 } from "./orchestrator/context-compressor.mjs";
 import { EventBus } from "./orchestrator/event-bus.mjs";
 import { RunRegistry } from "./orchestrator/run-registry.mjs";
+import { CommandTransferRegistry } from "./orchestrator/command-transfer.mjs";
 import { RoundtableScheduler, createTurnPlan } from "./orchestrator/scheduler.mjs";
 import { LocalWorkspaceStore } from "./storage/local-workspace-store.mjs";
 import { SqliteControlStore } from "./storage/sqlite-control-store.mjs";
@@ -185,6 +186,7 @@ function errorStatus(error) {
     "PROVIDER_NOT_FOUND",
     "COMPRESSION_NOT_FOUND",
     "COMPRESSION_REVISION_NOT_FOUND",
+    "COMMAND_TRANSFER_NOT_FOUND",
   ].includes(code)) return 404;
   if ([
     "MANUAL_BROWSER_NAVIGATION_DISABLED",
@@ -207,6 +209,7 @@ function errorStatus(error) {
     "PLAN_NOT_AWAITING_CONTINUATION",
     "DISCUSSION_CYCLE_LIMIT_REACHED",
     "INTERVENTION_NOT_PENDING",
+    "COMMAND_TRANSFER_CHUNK_OUT_OF_ORDER",
   ].includes(code)) return 409;
   if ([
     "INVALID_PROVIDER_URL",
@@ -229,6 +232,13 @@ function errorStatus(error) {
     "INVALID_COMPRESSION_NOTE",
     "INTERVENTION_TOO_LONG",
     "ROLE_OVERRIDE_PROVIDER_NOT_SELECTED",
+    "INVALID_COMMAND_TRANSFER",
+    "COMMAND_TRANSFER_TOO_LARGE",
+    "COMMAND_TRANSFER_SIZE_EXCEEDED",
+    "COMMAND_TRANSFER_SIZE_MISMATCH",
+    "COMMAND_TRANSFER_HASH_MISMATCH",
+    "INVALID_EVENT_CURSOR",
+    "INVALID_EVENT_LIMIT",
   ].includes(code)) return 400;
   if (code === "ENOENT") return 404;
   if (message.includes("ALREADY_EXISTS") || message.includes("ACTIVE") || message.includes("TARGET_CHANGED")) return 409;
@@ -285,6 +295,7 @@ function runtimeOptions(options = {}) {
     store,
     eventBus,
     runRegistry,
+    commandTransfers: options.commandTransfers || new CommandTransferRegistry(),
     extensionRelay,
     adapters,
     browserManager,
@@ -1158,6 +1169,86 @@ async function handleRunAction(request, response, runtime, services, sessionId, 
   return sendJson(response, 200, { ok: true, run: updated, session });
 }
 
+function parseEventCursor(url) {
+  const afterRaw = url.searchParams.get("after");
+  const lastEventId = url.searchParams.get("lastEventId") || null;
+  const limitRaw = url.searchParams.get("limit");
+  let after = null;
+  if (afterRaw !== null && afterRaw !== "") {
+    after = Number(afterRaw);
+    if (!Number.isInteger(after) || after < 0) {
+      throw Object.assign(new Error("after must be a non-negative integer"), { code: "INVALID_EVENT_CURSOR" });
+    }
+  }
+  let limit = 200;
+  if (limitRaw !== null && limitRaw !== "") {
+    limit = Number(limitRaw);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
+      throw Object.assign(new Error("limit must be an integer between 1 and 1000"), { code: "INVALID_EVENT_LIMIT" });
+    }
+  }
+  return { after, lastEventId, limit };
+}
+
+async function paginateSessionEvents(sessionId, url, { store }) {
+  const { after, lastEventId, limit } = parseEventCursor(url);
+  const session = await store.readSession(sessionId);
+  const events = Array.isArray(session.events) ? session.events : [];
+  const total = events.length;
+  let fromIndex = 0;
+  let resyncRequired = false;
+  if (after !== null && after > total) {
+    resyncRequired = true;
+  } else if (lastEventId) {
+    const lastIndex = events.findIndex((event) => event && event.id === lastEventId);
+    if (lastIndex === -1) {
+      resyncRequired = true;
+    } else if (after === null || lastIndex !== after - 1) {
+      resyncRequired = true;
+    }
+  }
+  if (!resyncRequired && after !== null) fromIndex = after;
+  const slice = events.slice(fromIndex, fromIndex + limit);
+  return {
+    events: slice,
+    fromIndex,
+    nextIndex: fromIndex + slice.length,
+    total,
+    resyncRequired,
+  };
+}
+
+async function dispatchSessionCommand(runtime, services, sessionId, payload) {
+  const { store, scheduler } = services;
+  let current = await store.readSession(sessionId);
+  const rollbackInstruction = parseRollbackInstruction(payload.text);
+  if (rollbackInstruction) {
+    current = await nameSessionFromFirstMessage(store, current, payload.text);
+    const result = await executeRollbackInstruction(services, sessionId, rollbackInstruction);
+    runtime.eventBus.emit({ type: "transaction.rolled_back", sessionId, transaction: result.transaction });
+    return { status: 200, body: { ok: true, ...result, plan: null, run: null } };
+  }
+  const settings = coerceSettings({ ...(current.settings || {}), ...(payload.settings || {}) });
+  const parsedForTitle = parseRoundtableCommand(payload, current, settings);
+  current = await nameSessionFromFirstMessage(store, current, parsedForTitle.instruction);
+  if (settings.mode !== "mock") {
+    const runtimeExecutionMode = runtime.browserManager.mode === "extension" ? "extension" : "playwright";
+    if (settings.mode !== runtimeExecutionMode) {
+      const error = new Error(`The session execution mode ${settings.mode} does not match the active ${runtimeExecutionMode} browser runtime.`);
+      error.code = "BROWSER_MODE_MISMATCH";
+      throw error;
+    }
+    const runId = randomUUID();
+    const prepared = await scheduler.prepareCommand(sessionId, payload, { runId });
+    const controller = new AbortController();
+    const run = runtime.runRegistry.create({ runId, sessionId, planId: prepared.plan.id, controller });
+    startBackgroundRun(runtime, services, sessionId, prepared.plan.id, runId, controller);
+    return { status: 202, body: { ok: true, ...prepared, run } };
+  }
+  const result = await scheduler.executeCommand(sessionId, payload);
+  return { status: 200, body: { ok: true, ...result, run: null } };
+}
+
 async function handleSessionRoute(request, response, runtime, url, parts) {
   const services = requireActiveWorkspace(runtime);
   const { store, scheduler, artifactWriter, handoffManager, controllerToolWorker } = services;
@@ -1174,7 +1265,12 @@ async function handleSessionRoute(request, response, runtime, url, parts) {
   }
   const sessionId = parts[2];
   if (parts.length === 3 && request.method === "GET") {
-    return sendJson(response, 200, { ok: true, session: await store.readSession(sessionId) });
+    const session = await store.readSession(sessionId);
+    if (url.searchParams.get("events") === "none") {
+      const totalEvents = Array.isArray(session.events) ? session.events.length : 0;
+      return sendJson(response, 200, { ok: true, session: { ...session, events: [] }, eventsOmitted: true, totalEvents });
+    }
+    return sendJson(response, 200, { ok: true, session });
   }
   const action = parts[3];
   if (parts.length === 4) {
@@ -1188,35 +1284,18 @@ async function handleSessionRoute(request, response, runtime, url, parts) {
       runtime.eventBus.emit({ type: "session.event_appended", sessionId, event: result.event });
       return sendJson(response, 200, { ok: true, ...result });
     }
+    if (request.method === "GET" && action === "events") {
+      return sendJson(response, 200, { ok: true, ...(await paginateSessionEvents(sessionId, url, { store })) });
+    }
+    if (request.method === "POST" && action === "command-transfers") {
+      const payload = await readJson(request);
+      const registration = runtime.commandTransfers.begin(sessionId, payload);
+      return sendJson(response, 201, { ok: true, ...registration });
+    }
     if (request.method === "POST" && action === "commands") {
       const payload = await readJson(request);
-      let current = await store.readSession(sessionId);
-      const rollbackInstruction = parseRollbackInstruction(payload.text);
-      if (rollbackInstruction) {
-        current = await nameSessionFromFirstMessage(store, current, payload.text);
-        const result = await executeRollbackInstruction(services, sessionId, rollbackInstruction);
-        runtime.eventBus.emit({ type: "transaction.rolled_back", sessionId, transaction: result.transaction });
-        return sendJson(response, 200, { ok: true, ...result, plan: null, run: null });
-      }
-      const settings = coerceSettings({ ...(current.settings || {}), ...(payload.settings || {}) });
-      const parsedForTitle = parseRoundtableCommand(payload, current, settings);
-      current = await nameSessionFromFirstMessage(store, current, parsedForTitle.instruction);
-      if (settings.mode !== "mock") {
-        const runtimeExecutionMode = runtime.browserManager.mode === "extension" ? "extension" : "playwright";
-        if (settings.mode !== runtimeExecutionMode) {
-          const error = new Error(`The session execution mode ${settings.mode} does not match the active ${runtimeExecutionMode} browser runtime.`);
-          error.code = "BROWSER_MODE_MISMATCH";
-          throw error;
-        }
-        const runId = randomUUID();
-        const prepared = await scheduler.prepareCommand(sessionId, payload, { runId });
-        const controller = new AbortController();
-        const run = runtime.runRegistry.create({ runId, sessionId, planId: prepared.plan.id, controller });
-        startBackgroundRun(runtime, services, sessionId, prepared.plan.id, runId, controller);
-        return sendJson(response, 202, { ok: true, ...prepared, run });
-      }
-      const result = await scheduler.executeCommand(sessionId, payload);
-      return sendJson(response, 200, { ok: true, ...result, run: null });
+      const dispatched = await dispatchSessionCommand(runtime, services, sessionId, payload);
+      return sendJson(response, dispatched.status, dispatched.body);
     }
     if (request.method === "POST" && action === "participant-role") {
       const payload = await readJson(request);
@@ -1392,6 +1471,29 @@ async function handleSessionRoute(request, response, runtime, url, parts) {
     const run = runtime.runRegistry.create({ runId, sessionId, planId, controller });
     startBackgroundRun(runtime, services, sessionId, planId, runId, controller, { resumePersisted: true });
     return sendJson(response, 202, { ok: true, session, plan, run });
+  }
+  if (action === "command-transfers" && parts.length === 5) {
+    const transferId = parts[4];
+    if (request.method === "GET") {
+      return sendJson(response, 200, { ok: true, ...runtime.commandTransfers.status(sessionId, transferId) });
+    }
+    if (request.method === "DELETE") {
+      return sendJson(response, 200, { ok: true, ...runtime.commandTransfers.cancel(sessionId, transferId) });
+    }
+    return false;
+  }
+  if (action === "command-transfers" && parts.length === 6 && ["chunks", "commit"].includes(parts[5]) && request.method === "POST") {
+    const transferId = parts[4];
+    if (parts[5] === "chunks") {
+      const payload = await readJson(request);
+      const result = runtime.commandTransfers.append(sessionId, transferId, payload);
+      return sendJson(response, 200, { ok: true, ...result });
+    }
+    await readJson(request);
+    const assembled = runtime.commandTransfers.commit(sessionId, transferId);
+    runtime.eventBus.emit({ type: "session.command_transfer_committed", sessionId, transferId, bytes: assembled.bytes });
+    const dispatched = await dispatchSessionCommand(runtime, services, sessionId, { ...(assembled.command || {}), text: assembled.text });
+    return sendJson(response, dispatched.status, dispatched.body);
   }
   if (action === "context" && parts.length === 5 && parts[4] === "compression" && request.method === "GET") {
     const session = await store.readSession(sessionId);

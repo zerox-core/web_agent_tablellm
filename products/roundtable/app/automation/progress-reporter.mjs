@@ -1,3 +1,14 @@
+export function tailWindowForProgress(value, maxChars = 12000) {
+  const text = String(value || "");
+  const limit = Math.max(200, Math.floor(Number(maxChars) || 0));
+  if (text.length <= limit) return { text, truncated: false, totalChars: text.length };
+  return {
+    text: `\u2026${text.slice(text.length - limit)}`,
+    truncated: true,
+    totalChars: text.length,
+  };
+}
+
 export function normalizeProgressText(value) {
   return String(value || "")
     .replace(/\r/g, "")

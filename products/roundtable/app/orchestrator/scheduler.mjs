@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { AutomationError } from "../automation/errors.mjs";
+import { tailWindowForProgress } from "../automation/progress-reporter.mjs";
 import {
   coerceSettings,
   getProvider,
@@ -1563,6 +1564,7 @@ export class RoundtableScheduler {
       onProgress: async (snapshot = {}) => {
         const text = String(snapshot.text || "").trim();
         if (!text) return;
+        const progressTail = tailWindowForProgress(text);
         this.emit("turn.progress", {
           sessionId: session.id,
           planId: plan.id,
@@ -1573,7 +1575,9 @@ export class RoundtableScheduler {
           providerLabel: turn.providerLabel || getProviderLabel(turn.providerId, session.participants),
           round: turn.round,
           stage: turn.stage,
-          text,
+          text: progressTail.text,
+          progressTruncated: progressTail.truncated,
+          progressTotalChars: progressTail.totalChars,
           at: snapshot.at || new Date().toISOString(),
         });
       },

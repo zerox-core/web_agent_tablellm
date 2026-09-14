@@ -11,7 +11,9 @@ import { fileURLToPath } from "node:url";
 import { createRoundtableServer, createSession as createStoredSession } from "./server.mjs";
 import { RoundtableScheduler } from "./orchestrator/scheduler.mjs";
 import { LocalWorkspaceStore } from "./storage/local-workspace-store.mjs";
+import { createHash } from "node:crypto";
 import { compressSessionContext } from "./orchestrator/context-compressor.mjs";
+import { CommandTransferRegistry } from "./orchestrator/command-transfer.mjs";
 
 async function startServer(t, options = {}) {
   const repoRoot = options.repoRoot || await fs.mkdtemp(path.join(os.tmpdir(), "web-agents-server-runtime-"));
@@ -1253,4 +1255,175 @@ test("compression review APIs reject missing state, unknown revisions and invali
   });
   assert.equal(annotateEmpty.response.status, 400);
   assert.equal(annotateEmpty.payload.error, "INVALID_COMPRESSION_NOTE");
+});
+
+test("session event pagination serves incremental deltas and marks stale cursors for resync", async (t) => {
+  const { baseUrl } = await startServer(t, { sqliteControlEnabled: false });
+  const session = await createSession(baseUrl, { conversationMode: "discussion", mode: "mock", defaultRounds: 2 }, { openThreads: false });
+  const appended = [];
+  for (let index = 0; index < 5; index += 1) {
+    const { payload } = await jsonRequest(`${baseUrl}/api/sessions/${session.id}/events`, {
+      method: "POST",
+      body: JSON.stringify({ type: "note", content: `增量事件 ${index}` }),
+    });
+    appended.push(payload.event);
+  }
+
+  const full = await jsonRequest(`${baseUrl}/api/sessions/${session.id}/events`);
+  assert.equal(full.response.status, 200);
+  assert.equal(full.payload.ok, true);
+  assert.equal(full.payload.fromIndex, 0);
+  assert.equal(full.payload.total, 5);
+  assert.equal(full.payload.nextIndex, 5);
+  assert.equal(full.payload.resyncRequired, false);
+  assert.deepEqual(full.payload.events.map((event) => event.id), appended.map((event) => event.id));
+
+  const delta = await jsonRequest(`${baseUrl}/api/sessions/${session.id}/events?after=2&lastEventId=${encodeURIComponent(appended[1].id)}`);
+  assert.equal(delta.response.status, 200);
+  assert.equal(delta.payload.resyncRequired, false);
+  assert.equal(delta.payload.fromIndex, 2);
+  assert.equal(delta.payload.nextIndex, 5);
+  assert.deepEqual(delta.payload.events.map((event) => event.id), appended.slice(2).map((event) => event.id));
+
+  const ahead = await jsonRequest(`${baseUrl}/api/sessions/${session.id}/events?after=5`);
+  assert.equal(ahead.response.status, 200);
+  assert.equal(ahead.payload.resyncRequired, false);
+  assert.deepEqual(ahead.payload.events, []);
+
+  const limited = await jsonRequest(`${baseUrl}/api/sessions/${session.id}/events?after=0&limit=2`);
+  assert.equal(limited.payload.events.length, 2);
+  assert.equal(limited.payload.nextIndex, 2);
+
+  const stale = await jsonRequest(`${baseUrl}/api/sessions/${session.id}/events?after=2&lastEventId=${encodeURIComponent(appended[4].id)}`);
+  assert.equal(stale.payload.resyncRequired, true);
+  assert.equal(stale.payload.fromIndex, 0);
+  assert.equal(stale.payload.events.length, 5);
+
+  const beyond = await jsonRequest(`${baseUrl}/api/sessions/${session.id}/events?after=999`);
+  assert.equal(beyond.payload.resyncRequired, true);
+
+  const invalidCursor = await jsonRequest(`${baseUrl}/api/sessions/${session.id}/events?after=abc`);
+  assert.equal(invalidCursor.response.status, 400);
+
+  const invalidLimit = await jsonRequest(`${baseUrl}/api/sessions/${session.id}/events?after=0&limit=0`);
+  assert.equal(invalidLimit.response.status, 400);
+
+  const omitted = await jsonRequest(`${baseUrl}/api/sessions/${session.id}?events=none`);
+  assert.equal(omitted.response.status, 200);
+  assert.equal(omitted.payload.ok, true);
+  assert.equal(omitted.payload.eventsOmitted, true);
+  assert.equal(omitted.payload.totalEvents, 5);
+  assert.deepEqual(omitted.payload.session.events, []);
+  const intactMeta = omitted.payload.session;
+  assert.equal(intactMeta.id, session.id);
+  assert.ok(Array.isArray(intactMeta.participants));
+});
+
+test("chunked command transfers upload long commands with resume and dispatch them", async (t) => {
+  const { baseUrl } = await startServer(t, {
+    sqliteControlEnabled: false,
+    commandTransfers: new CommandTransferRegistry({ chunkBytes: 4096 }),
+  });
+  const session = await createSession(baseUrl, { conversationMode: "discussion", mode: "mock", defaultRounds: 2 }, { openThreads: false });
+  const text = "这是超长指令：\n" + "圆桌请就大文件链路的分块传输与断点恢复展开讨论。".repeat(2000);
+  const bytes = Buffer.byteLength(text, "utf8");
+  const expectedSha256 = createHash("sha256").update(Buffer.from(text, "utf8")).digest("hex");
+  const command = { targets: ["chatgpt", "deepseek"], mentionTokens: [], rounds: 2, conversationMode: "discussion" };
+
+  const tooBig = await jsonRequest(`${baseUrl}/api/sessions/${session.id}/command-transfers`, {
+    method: "POST",
+    body: JSON.stringify({ expectedBytes: 33 * 1024 * 1024, expectedSha256, command: {} }),
+  });
+  assert.equal(tooBig.response.status, 400);
+
+  const begin = await jsonRequest(`${baseUrl}/api/sessions/${session.id}/command-transfers`, {
+    method: "POST",
+    body: JSON.stringify({ expectedBytes: bytes, expectedSha256, command }),
+  });
+  assert.equal(begin.response.status, 201);
+  assert.equal(begin.payload.ok, true);
+  assert.equal(begin.payload.chunkBytes, 4096);
+
+  const unknown = await jsonRequest(`${baseUrl}/api/sessions/${session.id}/command-transfers/00000000-0000-0000-0000-000000000000`);
+  assert.equal(unknown.response.status, 404);
+
+  const chunkChars = Math.floor((begin.payload.chunkBytes || 4096) / 4);
+  const chunks = [];
+  for (let offset = 0; offset < text.length;) {
+    let end = Math.min(offset + chunkChars, text.length);
+    if (end < text.length) {
+      const last = text.charCodeAt(end - 1);
+      if (last >= 0xd800 && last <= 0xdbff) end -= 1;
+    }
+    chunks.push(text.slice(offset, end));
+    offset = end;
+  }
+  assert.ok(chunks.length > 10);
+
+  const outOfOrder = await jsonRequest(`${baseUrl}/api/sessions/${session.id}/command-transfers/${begin.payload.transferId}/chunks`, {
+    method: "POST",
+    body: JSON.stringify({ chunkIndex: 3, content: chunks[3] }),
+  });
+  assert.equal(outOfOrder.response.status, 409);
+
+  await jsonRequest(`${baseUrl}/api/sessions/${session.id}/command-transfers/${begin.payload.transferId}/chunks`, {
+    method: "POST",
+    body: JSON.stringify({ chunkIndex: 0, content: chunks[0] }),
+  });
+  await jsonRequest(`${baseUrl}/api/sessions/${session.id}/command-transfers/${begin.payload.transferId}/chunks`, {
+    method: "POST",
+    body: JSON.stringify({ chunkIndex: 1, content: chunks[1] }),
+  });
+  const status = await jsonRequest(`${baseUrl}/api/sessions/${session.id}/command-transfers/${begin.payload.transferId}`);
+  assert.equal(status.response.status, 200);
+  assert.equal(status.payload.receivedChunks, 2);
+  assert.equal(status.payload.complete, false);
+
+  for (let index = 2; index < chunks.length; index += 1) {
+    await jsonRequest(`${baseUrl}/api/sessions/${session.id}/command-transfers/${begin.payload.transferId}/chunks`, {
+      method: "POST",
+      body: JSON.stringify({ chunkIndex: index, content: chunks[index] }),
+    });
+  }
+
+  const commit = await jsonRequest(`${baseUrl}/api/sessions/${session.id}/command-transfers/${begin.payload.transferId}/commit`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  assert.equal(commit.response.status, 200);
+  assert.equal(commit.payload.ok, true);
+  assert.equal(commit.payload.run, null);
+
+  const reloaded = await fetch(`${baseUrl}/api/sessions/${encodeURIComponent(session.id)}`, { headers: { Connection: "close" } }).then((response) => response.json());
+  const commandEvent = reloaded.session.events.find((event) => event.type === "command");
+  assert.ok(commandEvent);
+  assert.equal(commandEvent.content, text);
+
+  const gone = await jsonRequest(`${baseUrl}/api/sessions/${session.id}/command-transfers/${begin.payload.transferId}`);
+  assert.equal(gone.response.status, 404);
+
+  const badBegin = await jsonRequest(`${baseUrl}/api/sessions/${session.id}/command-transfers`, {
+    method: "POST",
+    body: JSON.stringify({ expectedBytes: bytes, expectedSha256: "0".repeat(64), command: {} }),
+  });
+  assert.equal(badBegin.response.status, 201);
+  for (let index = 0; index < chunks.length; index += 1) {
+    await jsonRequest(`${baseUrl}/api/sessions/${session.id}/command-transfers/${badBegin.payload.transferId}/chunks`, {
+      method: "POST",
+      body: JSON.stringify({ chunkIndex: index, content: chunks[index] }),
+    });
+  }
+  const badCommit = await jsonRequest(`${baseUrl}/api/sessions/${session.id}/command-transfers/${badBegin.payload.transferId}/commit`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  assert.equal(badCommit.response.status, 400);
+  assert.equal(badCommit.payload.code, "COMMAND_TRANSFER_HASH_MISMATCH");
+
+  const cancel = await jsonRequest(`${baseUrl}/api/sessions/${session.id}/command-transfers/${badBegin.payload.transferId}`, { method: "DELETE" });
+  assert.equal(cancel.response.status, 200);
+  assert.equal(cancel.payload.cancelled, true);
+  const cancelAgain = await jsonRequest(`${baseUrl}/api/sessions/${session.id}/command-transfers/${badBegin.payload.transferId}`, { method: "DELETE" });
+  assert.equal(cancelAgain.response.status, 200);
+  assert.equal(cancelAgain.payload.cancelled, false);
 });

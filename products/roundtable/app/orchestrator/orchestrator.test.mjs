@@ -246,6 +246,8 @@ test("worker progress becomes a transient turn event and never enters the ledger
     round: 1,
     stage: turn.stage,
     text: "## 中间结果\n\n- 正在分析",
+    progressTruncated: false,
+    progressTotalChars: 15,
     at: progressAt,
   });
   const saved = await store.readSession(session.id);
