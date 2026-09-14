@@ -46,6 +46,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   maxContextEvents: 24,
   recentRawEvents: 6,
   contextWindowTokens: 131072,
+  providerContextWindowTokens: {},
   compressionTriggerPercent: 80,
   compressionTargetPercent: 20,
   recentRawTokenBudget: 16384,
@@ -116,6 +117,17 @@ export function coerceInteger(value, fallback, min, max) {
   return Math.min(max, Math.max(min, parsed));
 }
 
+function coerceProviderContextWindowTokens(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const coerced = {};
+  for (const [providerId, windowTokens] of Object.entries(value)) {
+    const parsed = Number.parseInt(String(windowTokens), 10);
+    if (!Number.isInteger(parsed) || parsed < 16384 || parsed > 1000000) continue;
+    coerced[providerId] = parsed;
+  }
+  return coerced;
+}
+
 export function coerceSettings(value = {}) {
   const contextWindowTokens = coerceInteger(
     value.contextWindowTokens,
@@ -139,6 +151,7 @@ export function coerceSettings(value = {}) {
     ),
   );
   const targetTokens = Math.floor((contextWindowTokens * compressionTargetPercent) / 100);
+  const providerContextWindowTokens = coerceProviderContextWindowTokens(value.providerContextWindowTokens);
   return {
     defaultRounds: coerceInteger(value.defaultRounds, DEFAULT_SETTINGS.defaultRounds, 2, 10),
     conversationMode: value.conversationMode === "relay" ? "relay" : "discussion",
@@ -148,6 +161,7 @@ export function coerceSettings(value = {}) {
     maxContextEvents: coerceInteger(value.maxContextEvents, DEFAULT_SETTINGS.maxContextEvents, 4, 120),
     recentRawEvents: coerceInteger(value.recentRawEvents, DEFAULT_SETTINGS.recentRawEvents, 1, 30),
     contextWindowTokens,
+    providerContextWindowTokens,
     compressionTriggerPercent,
     compressionTargetPercent,
     recentRawTokenBudget: coerceInteger(

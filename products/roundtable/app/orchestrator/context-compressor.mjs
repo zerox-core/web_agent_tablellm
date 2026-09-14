@@ -37,9 +37,13 @@ function compactText(value, maximum = 160) {
   return `${text.slice(0, maximum - 1)}…`;
 }
 
-function settingsFor(session) {
+function settingsFor(session, providerId) {
   const settings = session?.settings || {};
-  const windowTokens = Number(settings.contextWindowTokens || DEFAULT_SETTINGS.contextWindowTokens);
+  const providerOverrides = settings.providerContextWindowTokens || {};
+  const providerWindow = providerId ? Number(providerOverrides[providerId]) : Number.NaN;
+  const windowTokens = Number.isFinite(providerWindow) && providerWindow > 0
+    ? Math.floor(providerWindow)
+    : Number(settings.contextWindowTokens || DEFAULT_SETTINGS.contextWindowTokens);
   const triggerPercent = Number(settings.compressionTriggerPercent || DEFAULT_SETTINGS.compressionTriggerPercent);
   const targetPercent = Number(settings.compressionTargetPercent || DEFAULT_SETTINGS.compressionTargetPercent);
   return {
@@ -135,6 +139,21 @@ function appendCoveredEvents(buckets, events, fromIndex, throughIndex) {
   }
 }
 
+function revisionMetrics(active, droppedUnclassifiedEntryCount) {
+  const counts = Object.fromEntries(BUCKETS.map((bucket) => [bucket, (active?.[bucket] || []).length]));
+  const classifiedEntryCount = counts.consensus + counts.disagreements + counts.evidence + counts.decisions;
+  const unclassifiedEntryCount = counts.unclassified;
+  const entryCount = classifiedEntryCount + unclassifiedEntryCount;
+  return {
+    entryCount,
+    classifiedEntryCount,
+    unclassifiedEntryCount,
+    classifiedShare: entryCount ? Math.round((classifiedEntryCount / entryCount) * 100) / 100 : 0,
+    disagreementEntryCount: counts.disagreements,
+    droppedUnclassifiedEntryCount,
+  };
+}
+
 function stateWithRevision(previousState, revision) {
   const revisions = [...(previousState?.revisions || []), structuredClone(revision)];
   return {
@@ -164,7 +183,8 @@ export function compressSessionContext(session, options = {}) {
   const estimatePrompt = options.estimatePromptTokens || defaultEstimatePromptTokens;
   const estimateEvent = options.estimateEventTokens || ((event) => estimateTextTokens(event?.content || ""));
   const prompt = String(options.prompt || "");
-  const budget = settingsFor(session);
+  const providerId = options.providerId ? String(options.providerId) : null;
+  const budget = settingsFor(session, providerId);
   const beforeTokens = estimatePrompt(prompt);
   const active = getActiveCompression(session);
 
@@ -194,6 +214,7 @@ export function compressSessionContext(session, options = {}) {
     revision: revisionNumber,
     createdAt: timestamp(options.now),
     reason: "automatic",
+    providerId,
     coveredFromEventIndex,
     coveredThroughEventIndex,
     sourceEventIds: events
@@ -214,10 +235,14 @@ export function compressSessionContext(session, options = {}) {
   const state = stateWithRevision(previousState, revision);
   const buildPrompt = options.buildPrompt || (() => JSON.stringify(state.active));
   let afterTokens = rebuildEstimate(session, state, buildPrompt, estimatePrompt, budget.targetTokens);
+  let droppedUnclassifiedEntryCount = 0;
   while (afterTokens > budget.targetTokens && state.active.unclassified.length > 0) {
     state.active.unclassified.pop();
+    droppedUnclassifiedEntryCount += 1;
     afterTokens = rebuildEstimate(session, state, buildPrompt, estimatePrompt, budget.targetTokens);
   }
+  state.active.metrics = revisionMetrics(state.active, droppedUnclassifiedEntryCount);
+  state.revisions[state.revisions.length - 1] = structuredClone(state.active);
 
   return { changed: true, reason: "compressed", compression: state.active, state };
 }
@@ -262,6 +287,7 @@ export function reviseSessionCompression(session, payload = {}, options = {}) {
     reason: "user_revision",
     ...buckets,
   };
+  revision.metrics = revisionMetrics(revision, 0);
   const state = stateWithRevision(session.context.compression, revision);
   session.context.compression = state;
   return state.active;

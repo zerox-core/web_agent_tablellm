@@ -522,6 +522,7 @@ export class RoundtableScheduler {
       const compressor = this.contextCompression.compress || compressSessionContext;
       const compressionResult = compressor(snapshotSession, {
         prompt,
+        providerId: turn.providerId,
         buildPrompt: (targetSession) => {
           const targetProjection = projectContextForSeat(targetSession, turn.providerId, {
             throughEventIndex: eventsSnapshot.length - 1,

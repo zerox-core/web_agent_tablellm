@@ -202,3 +202,121 @@ test("user revision preserves raw events and rejects stale or unknown sources", 
     (error) => error.code === "UNKNOWN_COMPRESSION_SOURCE_EVENT",
   );
 });
+
+test("compression records quality metrics and counts dropped unclassified entries", () => {
+  const session = {
+    id: "compression-metrics",
+    settings: {
+      contextWindowTokens: 100,
+      compressionTriggerPercent: 80,
+      compressionTargetPercent: 20,
+      recentRawTokenBudget: 2,
+    },
+    events: [
+      { id: "m1", type: "reply", content: "普通观点一" },
+      { id: "m2", type: "reply", content: "普通观点二" },
+      { id: "m3", type: "reply", content: "普通观点三" },
+      { id: "m4", type: "command", content: "最近指令" },
+    ],
+    context: { seatCursors: {}, summaries: [] },
+  };
+  const shrinkingBuildPrompt = (target) => "x".repeat(
+    target.context?.compression?.active
+      ? 10 + 8 * target.context.compression.active.unclassified.length
+      : 80,
+  );
+
+  const result = compressSessionContext(session, {
+    prompt: "x".repeat(80),
+    buildPrompt: shrinkingBuildPrompt,
+    estimatePromptTokens,
+    estimateEventTokens: () => 1,
+    idFactory: () => "compression-metrics",
+  });
+
+  assert.equal(result.changed, true);
+  assert.equal(result.compression.unclassified.length, 1);
+  assert.equal(result.compression.estimate.targetMet, true);
+  assert.equal(result.compression.metrics.entryCount, 1);
+  assert.equal(result.compression.metrics.classifiedEntryCount, 0);
+  assert.equal(result.compression.metrics.unclassifiedEntryCount, 1);
+  assert.equal(result.compression.metrics.classifiedShare, 0);
+  assert.equal(result.compression.metrics.disagreementEntryCount, 0);
+  assert.equal(result.compression.metrics.droppedUnclassifiedEntryCount, 1);
+  assert.equal(result.compression.providerId, null);
+});
+
+test("per-seat context window override changes the compression trigger", () => {
+  const createSeatSession = () => ({
+    id: "compression-seat-window",
+    settings: {
+      contextWindowTokens: 100,
+      compressionTriggerPercent: 80,
+      compressionTargetPercent: 20,
+      recentRawTokenBudget: 1,
+      providerContextWindowTokens: { chatgpt: 50 },
+    },
+    events: [
+      { id: "s1", type: "reply", content: "共识：按席位独立估算" },
+      { id: "s2", type: "command", content: "最近指令" },
+    ],
+    context: { seatCursors: {}, summaries: [] },
+  });
+
+  const seat = createSeatSession();
+  const triggered = compressSessionContext(seat, {
+    prompt: "x".repeat(41),
+    providerId: "chatgpt",
+    buildPrompt: (target) => target.context?.compression?.active ? "x".repeat(10) : "x".repeat(41),
+    estimatePromptTokens,
+    estimateEventTokens: () => 1,
+    idFactory: () => "compression-seat",
+  });
+  assert.equal(triggered.changed, true);
+  assert.equal(triggered.compression.providerId, "chatgpt");
+  assert.equal(triggered.compression.estimate.windowTokens, 50);
+  assert.equal(triggered.compression.estimate.targetMet, true);
+  assert.equal(triggered.compression.metrics.classifiedEntryCount, 1);
+  assert.equal(triggered.compression.metrics.droppedUnclassifiedEntryCount, 0);
+
+  const global = createSeatSession();
+  const untouched = compressSessionContext(global, {
+    prompt: "x".repeat(41),
+    buildPrompt: (target) => "x".repeat(41),
+    estimatePromptTokens,
+    estimateEventTokens: () => 1,
+  });
+  assert.equal(untouched.changed, false);
+  assert.equal(untouched.reason, "below_trigger");
+});
+
+test("user revision recomputes quality metrics", () => {
+  const session = createSession();
+  compressSessionContext(session, {
+    prompt: buildPrompt(session),
+    buildPrompt,
+    estimatePromptTokens,
+    estimateEventTokens: () => 3,
+    now: () => "2026-07-18T08:00:00.000Z",
+    idFactory: () => "compression-1",
+  });
+
+  const revised = reviseSessionCompression(session, {
+    baseRevision: 1,
+    consensus: [{ id: "consensus-metrics", text: "账本保持只追加", sourceEventIds: ["e1"] }],
+    disagreements: [],
+    evidence: [],
+    decisions: [],
+    unclassified: [],
+  }, {
+    now: () => "2026-07-18T08:10:00.000Z",
+    idFactory: () => "compression-metrics-revision",
+  });
+
+  assert.equal(revised.reason, "user_revision");
+  assert.equal(revised.metrics.entryCount, 1);
+  assert.equal(revised.metrics.classifiedEntryCount, 1);
+  assert.equal(revised.metrics.unclassifiedEntryCount, 0);
+  assert.equal(revised.metrics.classifiedShare, 1);
+  assert.equal(revised.metrics.droppedUnclassifiedEntryCount, 0);
+});

@@ -79,6 +79,10 @@ test("scheduler persists one automatic compression before sending a turn", async
   const saved = await store.readSession(session.id);
   assert.equal(saved.context.compression.active.revision, 1);
   assert.equal(saved.context.compression.active.reason, "automatic");
+  assert.equal(saved.context.compression.active.providerId, "deepseek");
+  assert.equal(saved.context.compression.active.metrics.entryCount, 3);
+  assert.equal(saved.context.compression.active.metrics.classifiedEntryCount, 3);
+  assert.equal(saved.context.compression.active.metrics.droppedUnclassifiedEntryCount, 0);
   assert.equal(saved.context.compression.revisions.length, 1);
   assert.match(calls[0].prompt, /较早讨论中已经出现的主要判断包括/);
   assert.match(calls[0].prompt, /仍未解决的分歧包括/);
