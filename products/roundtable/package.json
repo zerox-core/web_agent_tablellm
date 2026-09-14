@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@playwright/mcp": "0.0.78",
-    "@web-agents/local-core": "https://github.com/zhuxice-ctrl/web_agents/archive/refs/tags/local-core-v1.0.0.tar.gz",
+    "@web-agents/local-core": "https://github.com/zhuxice-ctrl/web_agents/archive/refs/tags/local-core-v1.1.0.tar.gz",
     "dompurify": "3.4.12",
     "marked": "18.0.7",
     "playwright": "^1.61.1"

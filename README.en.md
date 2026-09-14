@@ -197,7 +197,7 @@ Confirm that the roundtable uses fixed port `3020`, load only `products/roundtab
 - Formal branch: `tablellm`.
 - Current version: `1.0.1`.
 - Release tag: `tablellm-v1.0.1`.
-- Shared foundation: `@web-agents/local-core@1.0.0`, pinned to `local-core-v1.0.0`.
+- Shared foundation: `@web-agents/local-core@1.1.0`, pinned to `local-core-v1.1.0`.
 - The plugin product lives on the `webagent` branch of the separate repository [zhuxice-ctrl/web_agents](https://github.com/zhuxice-ctrl/web_agents); the two products are never merged.
 
 ## License

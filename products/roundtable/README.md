@@ -2,7 +2,7 @@
 
 The roundtable is a standalone local workbench. Its default browser path uses a dedicated Chrome profile over CDP and Playwright; the compatibility extension is optional and tested separately.
 
-Version `1.0.1` depends on the independently released `@web-agents/local-core@1.0.0` package. It contains no web_Agent plugin source or vendored core copy.
+Version `1.0.1` depends on the independently released `@web-agents/local-core@1.1.0` package. It contains no web_Agent plugin source or vendored core copy.
 
 ## Commands
 
