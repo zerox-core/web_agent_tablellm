@@ -8,7 +8,7 @@ import { PROVIDERS, coerceSettings, createDefaultLayout } from "../core/provider
 import { LocalWorkspaceStore } from "../storage/local-workspace-store.mjs";
 import { parseRoundtableCommand } from "./command-parser.mjs";
 import { buildPrompt, getDiscussionStage } from "./context-builder.mjs";
-import { RoundtableScheduler, createTurnPlan, requiresLocalToolProtocol } from "./scheduler.mjs";
+import { RoundtableScheduler, createTurnPlan, requiresLocalToolProtocol, toolProtocolEnabledFor } from "./scheduler.mjs";
 import { RunRegistry } from "./run-registry.mjs";
 import { EventBus } from "./event-bus.mjs";
 
@@ -401,6 +401,25 @@ test("tool protocol routing distinguishes ordinary discussion from explicit loca
   assert.equal(requiresLocalToolProtocol({ originalTask: "软件开发最重要的路径是什么", writeExecutorId: null }), false);
   assert.equal(requiresLocalToolProtocol({ originalTask: "读取 F:\\web_agents\\README.md 并分析", writeExecutorId: null }), true);
   assert.equal(requiresLocalToolProtocol({ originalTask: "修改本地文件并保存", writeExecutorId: "chatgpt" }), true);
+});
+
+test("workbench switch gates the tool protocol and defaults to off", async () => {
+  assert.equal(coerceSettings({}).workbenchEnabled, false);
+  assert.equal(coerceSettings({ workbenchEnabled: true }).workbenchEnabled, true);
+  assert.equal(coerceSettings({ workbenchEnabled: false }).workbenchEnabled, false);
+
+  const store = await createStore();
+  const offSession = await createSession(store);
+  const onSession = await createSession(store, { workbenchEnabled: true });
+  assert.equal(offSession.settings.workbenchEnabled, false);
+  assert.equal(onSession.settings.workbenchEnabled, true);
+
+  const localWork = { originalTask: "读取 F:\\web_agents\\README.md 并分析", writeExecutorId: null };
+  const discussion = { originalTask: "软件开发最重要的路径是什么", writeExecutorId: null };
+  assert.equal(toolProtocolEnabledFor(offSession, localWork), false);
+  assert.equal(toolProtocolEnabledFor(offSession, { originalTask: "修改本地文件并保存", writeExecutorId: "chatgpt" }), false);
+  assert.equal(toolProtocolEnabledFor(onSession, localWork), true);
+  assert.equal(toolProtocolEnabledFor(onSession, discussion), false);
 });
 
 test("context builder relays authoritative raw content even when derived structure exists", async () => {

@@ -4,6 +4,20 @@ The roundtable is a standalone local workbench. Its default browser path uses a 
 
 Version `1.0.1` depends on the independently released `@web-agents/local-core@1.1.0` package. It contains no web_Agent plugin source or vendored core copy.
 
+## Local workbench switch
+
+The roundtable exists to discuss plans, not to do local work by default. MCP tool
+read/write against the local filesystem is gated behind the per-session
+`workbenchEnabled` switch (advanced settings drawer, default off). While off,
+turns run through the plain browser worker and model text is treated as
+discussion only — no tool protocol is injected and no tool call is executed.
+When a session opts in, turns route through the controller tool worker, which
+prevents conflicting writes: only the designated write executor may run mutating
+tools (all other seats stay read-only and can only propose), low-confidence model
+output is blocked from side effects, out-of-workspace writes require explicit
+user confirmation, and every mutating call runs inside a rollbackable
+transaction.
+
 ## Commands
 
 - `npm run start:roundtable` starts the workbench server.

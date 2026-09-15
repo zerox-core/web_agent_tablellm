@@ -74,6 +74,16 @@ export function requiresLocalToolProtocol(plan = {}) {
   return LOCAL_TOOL_INTENT.test(String(plan.originalTask || plan.commandText || ""));
 }
 
+export function isWorkbenchEnabled(session = {}) {
+  return session?.settings?.workbenchEnabled === true;
+}
+
+// The workbench switch is the master gate: a session only sees the tool protocol
+// (and the tool execution loop) after it explicitly opts in; the default is off.
+export function toolProtocolEnabledFor(session = {}, plan = {}) {
+  return isWorkbenchEnabled(session) && requiresLocalToolProtocol(plan);
+}
+
 const TERMINAL_TURN_STATUSES = new Set(["completed", "passed", "absent", "skipped", "cancelled"]);
 const REPLAY_BLOCKING_PHASES = new Set(["submitting", "submitted", "capturing", "captured", "send_unknown", "completed"]);
 const NON_RETRYABLE_TECHNICAL_CODES = new Set(["PROVIDER_PAGE_NOT_BOUND", "PROVIDER_PAGE_IN_USE"]);
@@ -510,7 +520,7 @@ export class RoundtableScheduler {
       fallbackReason: turn.fallbackReason || null,
       roleOverrides: plan.roleOverrides || {},
       seatRole: resolveSeatRole(snapshotSession, turn.providerId, plan.roleOverrides || {}),
-      enableToolProtocol: requiresLocalToolProtocol(plan),
+      enableToolProtocol: toolProtocolEnabledFor(snapshotSession, plan),
     };
     const buildProjectedPrompt = (targetSession, targetProjection) => buildPrompt(
       targetSession,

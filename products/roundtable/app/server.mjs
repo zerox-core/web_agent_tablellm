@@ -24,6 +24,7 @@ import { createProviderAdapters } from "./automation/adapters/index.mjs";
 import { BrowserManager, sanitizePageUrl } from "./automation/browser-manager.mjs";
 import { BrowserWorker } from "./automation/worker.mjs";
 import { ControllerToolWorker } from "./automation/controller-tool-worker.mjs";
+import { WorkbenchGateWorker } from "./automation/workbench-gate-worker.mjs";
 import { ExtensionRelay } from "./automation/extension-relay.mjs";
 import { ExtensionBrowserManager } from "./automation/extension-browser-manager.mjs";
 import { ExtensionBrowserWorker } from "./automation/extension-worker.mjs";
@@ -372,7 +373,9 @@ function createWorkspaceServices(runtime, store, overrides = {}) {
     executeTool,
     runRegistry: runtime.runRegistry,
   });
-  const executionWorker = runtime.browserManager.mode === "extension" ? runtime.worker : controllerToolWorker;
+  const executionWorker = runtime.browserManager.mode === "extension"
+    ? runtime.worker
+    : new WorkbenchGateWorker({ store, browserWorker: runtime.worker, controllerToolWorker });
   const services = {
     store,
     permissionBroker,

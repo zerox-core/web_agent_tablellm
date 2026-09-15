@@ -242,6 +242,7 @@
         <label><span>单次上下文事件上限</span><input id="maxContextEvents" type="number" min="4" max="120" value="24" /></label>
         <label><span>交接提醒阈值（估算 %）</span><input id="handoffThreshold" type="number" min="50" max="95" value="72" /></label>
         <label><span>紧急交接阈值（估算 %）</span><input id="urgentHandoffThreshold" type="number" min="60" max="100" value="90" /></label>
+        <label class="check-row"><input id="workbenchEnabled" type="checkbox" /><span>本地工作台 MCP 工具读写（默认关闭；开启后仅指定写入席可改文件，其余席位只读讨论）</span></label>
         <label class="check-row"><input id="spaceAcceptMention" type="checkbox" /><span>允许空格接受 @ 补全（中文输入法下默认关闭）</span></label>
         <div class="runtime-details" id="runtimeDetails"></div>
         <div class="modal-actions"><button class="primary-button dialog-close" type="button">完成</button></div>

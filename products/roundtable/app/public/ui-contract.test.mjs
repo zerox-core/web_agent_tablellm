@@ -17,6 +17,7 @@ test("the approved roundtable layout has one task input and advanced settings st
   assert.match(html, /id="workspaceButton"/);
   assert.match(html, /id="sessionSelectTop"/);
   assert.match(html, /id="settingsDialog" class="settings-drawer"/);
+  assert.match(html, /id="workbenchEnabled"/);
   assert.match(html, /id="permissionDialog"/);
   assert.match(html, /id="recoveryDialog"/);
   assert.match(html, /id="pendingInterventionQueue"/);
@@ -42,6 +43,7 @@ test("the approved roundtable layout has one task input and advanced settings st
   assert.equal((html.match(/data-task-input="true"/g) || []).length, 1);
   assert.doesNotMatch(html, /当前任务|数据根目录/);
   assert.match(app, /getComposerSuggestions/);
+  assert.match(app, /workbenchEnabled/);
   assert.match(app, /findSnappedHost/);
   assert.match(app, /resolveRunRecovery/);
   assert.match(app, /previousSessionId !== state\.session\.id/);

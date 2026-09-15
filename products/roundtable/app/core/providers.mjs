@@ -59,6 +59,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   executionTimeoutMs: 180000,
   settleMs: 3000,
   retryLimit: 1,
+  workbenchEnabled: false,
 });
 
 export function getProvider(providerId, providers = PROVIDERS) {
@@ -209,6 +210,7 @@ export function coerceSettings(value = {}) {
     executionTimeoutMs: coerceInteger(value.executionTimeoutMs, DEFAULT_SETTINGS.executionTimeoutMs, 15000, 600000),
     settleMs: coerceInteger(value.settleMs, DEFAULT_SETTINGS.settleMs, 500, 15000),
     retryLimit: coerceInteger(value.retryLimit, DEFAULT_SETTINGS.retryLimit, 0, 5),
+    workbenchEnabled: value.workbenchEnabled === undefined ? DEFAULT_SETTINGS.workbenchEnabled : Boolean(value.workbenchEnabled),
   };
 }
 

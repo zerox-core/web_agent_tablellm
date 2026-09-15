@@ -155,6 +155,7 @@ function currentSettings() {
     providerConcurrency: Number($("#providerConcurrency").value || 1),
     handoffThreshold: Number($("#handoffThreshold").value || 72),
     urgentHandoffThreshold: Number($("#urgentHandoffThreshold").value || 90),
+    workbenchEnabled: $("#workbenchEnabled").checked,
   };
 }
 
@@ -733,6 +734,7 @@ async function loadSession(sessionId, { reconnect = true } = {}) {
   const modeInput = $(`input[name="conversationMode"][value="${state.conversationMode}"]`);
   if (modeInput) modeInput.checked = true;
   $("#maxContextEvents").value = settings.maxContextEvents || 24;
+  $("#workbenchEnabled").checked = settings.workbenchEnabled === true;
   state.activeRun = state.health?.activeRuns?.find((run) => run.sessionId === state.session.id) || null;
   if (previousSessionId !== state.session.id) {
     state.tokens = [{ id: "all", label: "全体", kind: "all" }];
