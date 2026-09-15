@@ -28,6 +28,7 @@
             <option value="">未创建圆桌</option>
           </select>
           <button id="renameSessionButton" class="icon-button" type="button" title="重命名圆桌" aria-label="重命名圆桌">✎</button>
+          <button id="deleteSessionButton" class="icon-button is-danger" type="button" title="删除圆桌" aria-label="删除圆桌">✕</button>
           <button id="newSessionButton" class="icon-button is-primary" type="button" title="新建圆桌" aria-label="新建圆桌">＋</button>
         </div>
 
@@ -71,9 +72,12 @@
             <svg id="seatSpokes" class="seat-spokes" aria-hidden="true"></svg>
             <div id="roundtableSeats" class="roundtable-seats"></div>
             <div class="table-core" aria-hidden="true">
-              <span class="table-ring"></span>
-              <strong>ROUNDTABLE</strong>
-              <small>共享上下文</small>
+              <span class="table-felt"></span>
+              <div class="table-hub">
+                <small>ROUNDTABLE</small>
+                <strong id="tableHubRound">待开局</strong>
+                <span id="tableHubStatus">共享上下文</span>
+              </div>
             </div>
           </section>
 

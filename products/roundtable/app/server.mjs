@@ -593,7 +593,7 @@ export async function createSession(payload = {}, options = {}) {
   const providers = options.providers || PROVIDERS;
   const selectedIds = Array.isArray(payload.participants) && payload.participants.length
     ? uniqueProviderIds(payload.participants.map(String))
-    : ["chatgpt", "deepseek", "doubao"];
+    : ["glm", "deepseek", "chatgpt", "gemini"];
   const participants = selectedIds
     .map((id) => getProvider(id, providers))
     .filter(Boolean)
@@ -838,6 +838,12 @@ export async function addSessionParticipant(sessionId, payload = {}, options = {
     session.updatedAt = now;
     return session;
   });
+}
+
+export async function deleteSession(sessionId, options = {}) {
+  const store = await getStore(options);
+  await store.deleteSession(sessionId);
+  return { id: sessionId };
 }
 
 export async function removeSessionParticipant(sessionId, payload = {}, options = {}) {
@@ -1267,6 +1273,11 @@ async function handleSessionRoute(request, response, runtime, url, parts) {
     return false;
   }
   const sessionId = parts[2];
+  if (parts.length === 3 && request.method === "DELETE") {
+    await deleteSession(sessionId, { store });
+    runtime.eventBus.emit({ type: "session.deleted", sessionId });
+    return sendJson(response, 200, { ok: true, sessionId });
+  }
   if (parts.length === 3 && request.method === "GET") {
     const session = await store.readSession(sessionId);
     if (url.searchParams.get("events") === "none") {

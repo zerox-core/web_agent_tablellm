@@ -1,10 +1,13 @@
 import { BaseProviderAdapter } from "./base-adapter.mjs";
 
+// Switched to Dola (doubao international, www.dola.com) per user decision
+// 2026-09-15. Provisional selector set: Dola is a different frontend from
+// doubao CN, selectors need live DOM verification after first login.
 export class DoubaoAdapter extends BaseProviderAdapter {
-  constructor({ url = "https://www.doubao.com/chat/" } = {}) {
+  constructor({ url = "https://www.dola.com/chat/" } = {}) {
     super({
       id: "doubao",
-      label: "豆包",
+      label: "Dola",
       url,
       inputSelectors: [
         'textarea[data-testid*="chat"]',
@@ -43,9 +46,11 @@ export class DoubaoAdapter extends BaseProviderAdapter {
         "button[class*='stop']",
       ],
       loginSelectors: [
+        "button:has-text('Log in')",
+        "button:has-text('Sign in')",
         "button:has-text('登录')",
-        "button:has-text('立即登录')",
         "a[href*='login']",
+        "a[href*='signin']",
       ],
     });
   }

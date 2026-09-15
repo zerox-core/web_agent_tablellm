@@ -3,8 +3,8 @@ import { randomUUID } from "node:crypto";
 export const PROVIDERS = [
   { id: "chatgpt", label: "ChatGPT", url: "https://chatgpt.com/", automation: "mvp" },
   { id: "deepseek", label: "DeepSeek", url: "https://chat.deepseek.com/", automation: "mvp" },
-  { id: "doubao", label: "豆包", url: "https://www.doubao.com/chat/", automation: "mvp" },
-  { id: "gemini", label: "Gemini", url: "https://gemini.google.com/app", automation: "planned" },
+  { id: "doubao", label: "Dola", url: "https://www.dola.com/chat/", automation: "mvp" },
+  { id: "gemini", label: "Gemini", url: "https://gemini.google.com/app", automation: "mvp" },
   { id: "qwen", label: "Qwen", url: "https://chat.qwen.ai/", automation: "planned" },
   { id: "kimi", label: "Kimi", url: "https://www.kimi.com/agent?chat_enter_method=change_model", automation: "mvp" },
   { id: "glm", label: "GLM", url: "https://chat.z.ai/", automation: "mvp" },
@@ -20,6 +20,7 @@ export const PROVIDER_ALIASES = new Map([
   ["ds", "deepseek"],
   ["豆包", "doubao"],
   ["doubao", "doubao"],
+  ["dola", "doubao"],
   ["gemini", "gemini"],
   ["qwen", "qwen"],
   ["qwq", "qwen"],

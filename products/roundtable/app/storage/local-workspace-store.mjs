@@ -292,6 +292,18 @@ export class LocalWorkspaceStore {
     });
   }
 
+  async deleteSession(sessionId) {
+    await this.initialize();
+    return this.withLock(sessionId, async () => {
+      const paths = this.getSessionPaths(sessionId);
+      if (!(await pathExists(paths.metadata))) throw new Error("SESSION_NOT_FOUND");
+      await fs.rm(paths.directory, { recursive: true, force: true });
+      await this.appendAudit({ kind: "session_delete", sessionId, path: paths.directory });
+      await this.reindex();
+      return { id: sessionId };
+    });
+  }
+
   async appendEvents(sessionId, events) {
     await this.initialize();
     if (!Array.isArray(events) || events.length === 0) return this.readSession(sessionId);

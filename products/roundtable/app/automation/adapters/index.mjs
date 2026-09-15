@@ -3,6 +3,7 @@ import { DeepSeekAdapter } from "./deepseek.mjs";
 import { DoubaoAdapter } from "./doubao.mjs";
 import { KimiAdapter } from "./kimi.mjs";
 import { GlmAdapter } from "./glm.mjs";
+import { GeminiAdapter } from "./gemini.mjs";
 
 export function createProviderAdapters({ urlOverrides = {} } = {}) {
   return new Map([
@@ -11,6 +12,7 @@ export function createProviderAdapters({ urlOverrides = {} } = {}) {
     ["doubao", new DoubaoAdapter({ url: urlOverrides.doubao })],
     ["kimi", new KimiAdapter({ url: urlOverrides.kimi })],
     ["glm", new GlmAdapter({ url: urlOverrides.glm })],
+    ["gemini", new GeminiAdapter({ url: urlOverrides.gemini })],
   ]);
 }
 
@@ -20,3 +22,4 @@ export { DeepSeekAdapter } from "./deepseek.mjs";
 export { DoubaoAdapter } from "./doubao.mjs";
 export { KimiAdapter } from "./kimi.mjs";
 export { GlmAdapter } from "./glm.mjs";
+export { GeminiAdapter } from "./gemini.mjs";

@@ -12,6 +12,7 @@ import {
   createRoundtableServer,
   createSession,
   createDefaultLayout,
+  deleteSession,
   executeRoundtableCommand,
   parseRoundtableCommand,
   readSession,
@@ -34,8 +35,8 @@ test("roundtable static UI uses workspace gating and one structured composer", a
   assert.doesNotMatch(indexHtml, /id="taskForm"|id="taskTitle"|id="taskObjective"|id="dataRootInput"/);
   assert.match(appJs, /targets: preview\.targets/);
   assert.match(appJs, /references: preview\.references/);
-  assert.match(appJs, /\["deepseek", "doubao"\]\.includes/);
-  assert.doesNotMatch(appJs, /\["chatgpt", "deepseek", "doubao"\]\.includes\(provider\.id\)/);
+  assert.match(appJs, /\["glm", "deepseek", "chatgpt", "gemini"\]\.includes/);
+  assert.doesNotMatch(appJs, /\["deepseek", "doubao"\]\.includes\(provider\.id\)/);
   assert.match(styles, /\.host-snap/);
   assert.match(styles, /\.seat-avatar/);
   assert.match(styles, /\.seat-spokes line/);
@@ -73,6 +74,23 @@ test("roundtable session writes ledger, events, and summary", async () => {
 
   const saved = await readSession(session.id, { repoRoot });
   assert.equal(saved.summary.text, "结论：先做最小圆桌。");
+});
+
+test("deleteSession removes a session directory and rejects later reads", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "web-agents-roundtable-"));
+  const session = await createSession(
+    {
+      title: "待删除会话",
+      objective: "验证删除",
+      participants: ["chatgpt"],
+    },
+    { repoRoot }
+  );
+
+  const deleted = await deleteSession(session.id, { repoRoot });
+  assert.equal(deleted.id, session.id);
+
+  await assert.rejects(() => readSession(session.id, { repoRoot }));
 });
 
 test("roundtable HTTP API creates session and returns prompts", async () => {
@@ -294,7 +312,7 @@ test("relay mode follows seat order and returns to the host for final summary", 
     ["deepseek", "doubao", "chatgpt"]
   );
   assert.match(result.plan.turns[1].prompt, /Mock DeepSeek/);
-  assert.match(result.plan.turns[2].prompt, /Mock 豆包/);
+  assert.match(result.plan.turns[2].prompt, /Mock Dola/);
   assert.match(result.session.events.at(-1).content, /东家总结/);
 });
 

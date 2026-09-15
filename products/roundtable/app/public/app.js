@@ -222,11 +222,12 @@ function capacityFor(thread) {
   return { used, percent, recommendation: percent >= 90 ? "尽快交接" : percent >= 72 ? "建议交接" : "可继续" };
 }
 
-const PROVIDER_AVATARS = new Set(["deepseek", "glm", "doubao", "kimi"]);
+const PROVIDER_AVATARS = new Map([["deepseek", "deepseek"], ["glm", "glm"], ["doubao", "dola"], ["kimi", "kimi"], ["gemini", "gemini"]]);
 
 function avatarMarkup(providerId, fallbackText) {
-  if (PROVIDER_AVATARS.has(providerId)) {
-    return `<img class="avatar-img" src="assets/avatars/${escapeHtml(providerId)}.png" alt="" loading="lazy" onerror="this.remove()" />`;
+  const avatarFile = PROVIDER_AVATARS.get(providerId);
+  if (avatarFile) {
+    return `<img class="avatar-img" src="assets/avatars/${escapeHtml(avatarFile)}.png" alt="" loading="lazy" onerror="this.remove()" />`;
   }
   return fallbackText ? `<em class="avatar-fallback">${escapeHtml(fallbackText)}</em>` : "";
 }
@@ -325,6 +326,11 @@ function renderRoundtable() {
   $("#roundProgress").textContent = activePlan
     ? `周期 ${progress.current} / 最多 ${progress.maximum} · ${progress.spoken} 位发言 · ${progress.passed} 位旁听${activePlan.status === "completed" ? " · 已收束" : ""}`
     : "0 / 0";
+  $("#tableHubRound").textContent = activePlan ? `周期 ${progress.current} / ${progress.maximum}` : "待开局";
+  $("#tableHubStatus").textContent = activePlan
+    ? `${progress.spoken} 位发言 · ${progress.passed} 位旁听${activePlan.status === "completed" ? " · 已收束" : ""}`
+    : "共享上下文";
+  $(".table-core")?.classList.toggle("is-running", Boolean(activePlan) && activePlan.status !== "completed");
   initializeLayoutNodes();
   root.innerHTML = state.session.participants.map((participant) => {
     const thread = state.session.threads?.[participant.id];
@@ -332,9 +338,9 @@ function renderRoundtable() {
     const capacity = capacityFor(thread);
     const discussionSeat = discussionView.seats[participant.id] || { state: "waiting", role: "" };
     const discussionLabel = discussionSeat.state === "listening" ? "本周期旁听" : discussionSeat.state === "speaking" ? "正在发言" : discussionSeat.state === "responded" ? "本周期已发言" : discussionSeat.state === "absent" ? "本周期缺席" : "等待周期";
-    return `<button class="seat-node${state.session.hostId === participant.id ? " is-host" : ""}${discussionSeat.state === "listening" ? " is-listening" : ""}" type="button" data-provider-id="${escapeHtml(participant.id)}" title="拖动席位；双击设置角色；东家仅在上方吸附点生效">
+    return `<button class="seat-node${state.session.hostId === participant.id ? " is-host" : ""}${discussionSeat.state === "listening" ? " is-listening" : ""}" type="button" data-provider-id="${escapeHtml(participant.id)}" data-state="${escapeHtml(discussionSeat.state)}" title="拖动席位；双击设置角色；东家仅在上方吸附点生效">
       <span class="seat-avatar" style="--capacity:${capacity.percent}%">${avatarMarkup(participant.id, participant.label.slice(0, 1))}<b>${capacity.percent}%</b></span>
-      <span class="seat-copy"><strong>${escapeHtml(participant.label)}</strong><small>${escapeHtml(discussionLabel)}${discussionSeat.role ? ` · ${escapeHtml(discussionSeat.role)}` : ""}</small></span>
+      <span class="seat-copy"><strong>${escapeHtml(participant.label)}${state.session.hostId === participant.id ? '<i class="host-crown" title="东家">♛</i>' : ""}</strong><span class="seat-status is-${escapeHtml(discussionSeat.state)}"><i></i>${escapeHtml(discussionLabel)}</span>${discussionSeat.role ? `<span class="seat-role">${escapeHtml(discussionSeat.role)}</span>` : ""}</span>
     </button>`;
   }).join("");
   applyNodePositions();
@@ -860,7 +866,7 @@ function renderNewSessionProviders() {
   const root = $("#newSessionProviders");
   root.innerHTML = state.providers.map((provider) => {
     const enabled = provider.automation === "mvp";
-    const checked = ["deepseek", "doubao"].includes(provider.id);
+    const checked = ["glm", "deepseek", "chatgpt", "gemini"].includes(provider.id);
     return `<label class="provider-option"><input type="checkbox" name="newProvider" value="${escapeHtml(provider.id)}" ${checked ? "checked" : ""} ${enabled ? "" : "disabled"} /><span class="provider-face">${avatarMarkup(provider.id, provider.label.slice(0, 1))}</span><span>${escapeHtml(provider.label)}${enabled ? "" : "（待适配）"}</span></label>`;
   }).join("");
 }
@@ -1074,6 +1080,21 @@ $("#renameSessionButton").addEventListener("click", async () => {
     await refreshRuntime();
   } catch (error) {
     showToast(`重命名失败：${error.message}`, { error: true });
+  }
+});
+
+$("#deleteSessionButton").addEventListener("click", async () => {
+  if (!state.session) return;
+  const target = state.session;
+  if (!window.confirm(`确定删除圆桌「${target.title}」吗？议题、发言记录与产出文件会一并删除，不可恢复。`)) return;
+  try {
+    await api(`/api/sessions/${encodeURIComponent(target.id)}`, { method: "DELETE" });
+    if (state.session?.id === target.id) state.session = null;
+    try { localStorage.removeItem(LAST_SESSION_STORAGE_KEY); } catch { }
+    await refreshRuntime({ preserveSession: false });
+    showToast("圆桌已删除");
+  } catch (error) {
+    showToast(`删除失败：${error.message}`, { error: true });
   }
 });
 

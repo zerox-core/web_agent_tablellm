@@ -1042,7 +1042,7 @@ test("relay keeps the original task, last successful baton, and absence notes", 
   const closure = calls.find((call) => call.role === "host_summary");
   assert.match(doubao.prompt, /原始任务：如何训练审美/);
   assert.match(doubao.prompt, /DeepSeek.*缺席/);
-  assert.match(closure.prompt, /最后成功接力棒：豆包/);
+  assert.match(closure.prompt, /最后成功接力棒：Dola/);
   assert.match(closure.prompt, /doubao-relay-success/);
   assert.equal(result.plan.turns.find((turn) => turn.providerId === "deepseek").status, "absent");
   assert.equal(result.plan.status, "completed");
