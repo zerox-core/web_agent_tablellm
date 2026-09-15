@@ -100,6 +100,11 @@ test("the approved roundtable layout has one task input and advanced settings st
   assert.doesNotMatch(app, /structuredReply|structureStatus|查看原始回复|reply-raw/);
   assert.doesNotMatch(css, /\.reply-raw/);
   assert.match(threadStatusModel, /输入框未找到/);
+  assert.match(html, /id="seatSpokes"/);
+  assert.match(app, /avatarMarkup/);
+  assert.match(app, /assets\/avatars/);
+  assert.match(css, /\.seat-avatar/);
+  assert.match(css, /\.seat-spokes line/);
   assert.match(html, /优先复用已有模型标签页并进入新对话/);
   assert.doesNotMatch(html, /每个入席模型都会在项目专用 Chrome 中获得新的网页会话/);
 });

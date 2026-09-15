@@ -37,7 +37,8 @@ test("roundtable static UI uses workspace gating and one structured composer", a
   assert.match(appJs, /\["deepseek", "doubao"\]\.includes/);
   assert.doesNotMatch(appJs, /\["chatgpt", "deepseek", "doubao"\]\.includes\(provider\.id\)/);
   assert.match(styles, /\.host-snap/);
-  assert.match(styles, /\.capacity-ring/);
+  assert.match(styles, /\.seat-avatar/);
+  assert.match(styles, /\.seat-spokes line/);
   assert.match(styles, /@media \(max-width: 520px\)/);
 });
 

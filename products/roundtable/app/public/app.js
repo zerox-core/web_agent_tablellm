@@ -222,6 +222,23 @@ function capacityFor(thread) {
   return { used, percent, recommendation: percent >= 90 ? "尽快交接" : percent >= 72 ? "建议交接" : "可继续" };
 }
 
+const PROVIDER_AVATARS = new Set(["deepseek", "glm", "doubao", "kimi"]);
+
+function avatarMarkup(providerId, fallbackText) {
+  if (PROVIDER_AVATARS.has(providerId)) {
+    return `<img class="avatar-img" src="assets/avatars/${escapeHtml(providerId)}.png" alt="" loading="lazy" onerror="this.remove()" />`;
+  }
+  return fallbackText ? `<em class="avatar-fallback">${escapeHtml(fallbackText)}</em>` : "";
+}
+
+function updateSeatSpokes() {
+  const spokes = $("#seatSpokes");
+  if (!spokes) return;
+  spokes.innerHTML = state.layoutNodes
+    .map((node) => `<line x1="50" y1="52" x2="${(node.x * 100).toFixed(2)}" y2="${(node.y * 100).toFixed(2)}" />`)
+    .join("");
+}
+
 function renderParticipants() {
   const root = $("#participantList");
   const seatCount = $("#seatCount");
@@ -245,7 +262,7 @@ function renderParticipants() {
     return `
       <div class="participant-row" data-provider-id="${escapeHtml(participant.id)}" title="${escapeHtml(status.detail || "")}">
         <div class="participant-head">
-          <span class="participant-avatar">${escapeHtml(participant.label.slice(0, 2))}<i class="${status.className}"></i></span>
+          <span class="participant-avatar">${escapeHtml(participant.label.slice(0, 2))}${avatarMarkup(participant.id)}<i class="${status.className}"></i></span>
           <span class="participant-info">
             <strong>${escapeHtml(participant.label)}</strong>
             <span class="participant-meta"><em class="seat-pill ${status.className}">${escapeHtml(status.label)}</em><small>同步 ${synced}/${total}</small></span>
@@ -316,7 +333,7 @@ function renderRoundtable() {
     const discussionSeat = discussionView.seats[participant.id] || { state: "waiting", role: "" };
     const discussionLabel = discussionSeat.state === "listening" ? "本周期旁听" : discussionSeat.state === "speaking" ? "正在发言" : discussionSeat.state === "responded" ? "本周期已发言" : discussionSeat.state === "absent" ? "本周期缺席" : "等待周期";
     return `<button class="seat-node${state.session.hostId === participant.id ? " is-host" : ""}${discussionSeat.state === "listening" ? " is-listening" : ""}" type="button" data-provider-id="${escapeHtml(participant.id)}" title="拖动席位；双击设置角色；东家仅在上方吸附点生效">
-      <span class="capacity-ring" style="--capacity:${capacity.percent}%"><b>${capacity.percent}%</b></span>
+      <span class="seat-avatar" style="--capacity:${capacity.percent}%">${avatarMarkup(participant.id, participant.label.slice(0, 1))}<b>${capacity.percent}%</b></span>
       <span class="seat-copy"><strong>${escapeHtml(participant.label)}</strong><small>${escapeHtml(discussionLabel)}${discussionSeat.role ? ` · ${escapeHtml(discussionSeat.role)}` : ""}</small></span>
     </button>`;
   }).join("");
@@ -324,6 +341,7 @@ function renderRoundtable() {
 }
 
 function applyNodePositions() {
+  updateSeatSpokes();
   for (const node of state.layoutNodes) {
     const element = $(`.seat-node[data-provider-id="${CSS.escape(node.id)}"]`);
     if (!element) continue;
@@ -648,7 +666,7 @@ function renderSuggestions() {
     return;
   }
   root.hidden = false;
-  root.innerHTML = suggestions.map((suggestion, index) => `<button class="suggestion-item${index === state.suggestions.activeIndex ? " is-active" : ""}" type="button" role="option" data-suggestion-index="${index}"><span class="participant-avatar">${escapeHtml(suggestion.label.slice(0, 2))}</span><strong>${escapeHtml(suggestion.label)}</strong><kbd>${index === 0 ? "Tab" : ""}</kbd></button>`).join("");
+  root.innerHTML = suggestions.map((suggestion, index) => `<button class="suggestion-item${index === state.suggestions.activeIndex ? " is-active" : ""}" type="button" role="option" data-suggestion-index="${index}"><span class="participant-avatar">${avatarMarkup(suggestion.id)}${escapeHtml(suggestion.label.slice(0, 2))}</span><strong>${escapeHtml(suggestion.label)}</strong><kbd>${index === 0 ? "Tab" : ""}</kbd></button>`).join("");
 }
 
 function renderRuntimeDetails() {
@@ -843,7 +861,7 @@ function renderNewSessionProviders() {
   root.innerHTML = state.providers.map((provider) => {
     const enabled = provider.automation === "mvp";
     const checked = ["deepseek", "doubao"].includes(provider.id);
-    return `<label class="provider-option"><input type="checkbox" name="newProvider" value="${escapeHtml(provider.id)}" ${checked ? "checked" : ""} ${enabled ? "" : "disabled"} /><span>${escapeHtml(provider.label)}${enabled ? "" : "（待适配）"}</span></label>`;
+    return `<label class="provider-option"><input type="checkbox" name="newProvider" value="${escapeHtml(provider.id)}" ${checked ? "checked" : ""} ${enabled ? "" : "disabled"} /><span class="provider-face">${avatarMarkup(provider.id, provider.label.slice(0, 1))}</span><span>${escapeHtml(provider.label)}${enabled ? "" : "（待适配）"}</span></label>`;
   }).join("");
 }
 
