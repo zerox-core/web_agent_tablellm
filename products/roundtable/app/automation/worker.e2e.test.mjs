@@ -207,3 +207,22 @@ test("browser worker classifies a login redirect while waiting for a response", 
   );
   assert.equal(manager.status().pages.some((page) => page.providerId === "deepseek"), false);
 });
+
+test("browser worker follows a conversation moved into a popup tab", { timeout: 30000 }, async (t) => {
+  const { root, worker } = await createFixture(t, (baseUrl) => ({ chatgpt: `${baseUrl}/chatgpt?popup=1` }));
+  const result = await worker.execute({
+    sessionId: "fake-session",
+    planId: "fake-plan",
+    turnId: "popup-turn",
+    providerId: "chatgpt",
+    prompt: "popup follow test",
+    round: 1,
+    timeoutMs: 10000,
+    settleMs: 120,
+    autoSend: true,
+    autoCapture: true,
+    diagnosticsDir: path.join(root, "diagnostics"),
+  });
+  assert.match(result.text, /FAKE_RESPONSE\[chatgpt\]#1/);
+  assert.match(result.capture.url, /\/popup-view/);
+});

@@ -24,8 +24,9 @@ export class GlmAdapter extends BaseProviderAdapter {
       ],
       responseSelectors: [
         "[data-role='assistant']",
-        "[class*='markdown']:not([contenteditable='true'])",
         ".prose",
+        "[class*='markdown']:not([contenteditable='true']):not([class*='chat-user'])",
+        "[class*='chat-assistant']",
       ],
       busySelectors: [
         "button[aria-label*='停止']",

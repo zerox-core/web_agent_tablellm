@@ -46,6 +46,7 @@ export function responseStructureComplete(text) {
 export async function waitForCompletedResponse({
   page,
   adapter,
+  resolvePage = null,
   baselineCandidates = [],
   timeoutMs = 180000,
   settleMs = 3000,
@@ -63,10 +64,11 @@ export async function waitForCompletedResponse({
 
   while (Date.now() < deadline) {
     throwIfAborted(signal);
-    await adapter.assertAutomationReady?.(page, { phase: "wait_for_response" });
+    const current = resolvePage ? await resolvePage(page) : page;
+    await adapter.assertAutomationReady?.(current, { phase: "wait_for_response" });
     const [candidates, busy] = await Promise.all([
-      adapter.collectResponseCandidates(page),
-      adapter.isBusy(page),
+      adapter.collectResponseCandidates(current),
+      adapter.isBusy(current),
     ]);
     observedBusy ||= busy;
     const candidate = selectNewResponseCandidate(candidates, baselineCandidates);

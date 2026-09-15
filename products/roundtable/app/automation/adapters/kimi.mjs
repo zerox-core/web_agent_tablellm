@@ -24,9 +24,8 @@ export class KimiAdapter extends BaseProviderAdapter {
       ],
       responseSelectors: [
         "[data-role='assistant']",
-        "[class*='markdown']:not([contenteditable='true'])",
-        ".prose",
-        "[class*='answer']",
+        ".segment-assistant [class*='markdown']:not([contenteditable='true'])",
+        ".chat-content-item-assistant [class*='markdown']:not([contenteditable='true'])",
       ],
       busySelectors: [
         "button[aria-label*='停止']",

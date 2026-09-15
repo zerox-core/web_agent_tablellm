@@ -113,3 +113,38 @@ test("Doubao adapter prioritizes known chat input variants before generic fallba
     '[aria-label*="发消息"][contenteditable="true"]',
   ]);
 });
+
+test("completion detector follows the capture page through resolvePage", async () => {
+  const mainPage = { id: "main" };
+  const chatPage = { id: "chat" };
+  const assertPages = [];
+  const adapter = {
+    id: "kimi",
+    label: "Kimi",
+    async assertAutomationReady(pageArg) { assertPages.push(pageArg); },
+    async collectResponseCandidates(pageArg) {
+      if (pageArg === chatPage) {
+        return [{ selector: ".reply", index: 0, identity: "reply-new", text: "popup captured" }];
+      }
+      return [];
+    },
+    async isBusy() { return false; },
+  };
+  let polls = 0;
+  const resolvePage = () => {
+    polls += 1;
+    return polls >= 2 ? chatPage : mainPage;
+  };
+
+  const result = await waitForCompletedResponse({
+    page: mainPage,
+    resolvePage,
+    adapter,
+    timeoutMs: 2000,
+    settleMs: 15,
+    pollMs: 5,
+  });
+
+  assert.equal(result.text, "popup captured");
+  assert.ok(assertPages.includes(chatPage));
+});

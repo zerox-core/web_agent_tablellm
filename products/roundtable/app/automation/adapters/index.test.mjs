@@ -43,3 +43,21 @@ test("kimi and glm adapter URLs respect urlOverrides", () => {
   assert.equal(adapters.get("kimi").url, "https://kimi.example.invalid/agent");
   assert.equal(adapters.get("glm").url, "https://glm.example.invalid/");
 });
+
+test("kimi and glm response selectors are scoped to assistant bubbles", () => {
+  const adapters = createProviderAdapters();
+  const kimi = adapters.get("kimi");
+  for (const selector of kimi.responseSelectors) {
+    assert.ok(/assistant/i.test(selector), `kimi selector must be assistant-scoped: ${selector}`);
+  }
+  const glm = adapters.get("glm");
+  assert.ok(glm.responseSelectors.some((selector) => selector.includes("chat-assistant")));
+  for (const selector of glm.responseSelectors) {
+    if (selector.includes("markdown")) {
+      assert.ok(
+        selector.includes("chat-user") || selector.includes("chat-assistant"),
+        `glm markdown selector must exclude user bubbles: ${selector}`
+      );
+    }
+  }
+});

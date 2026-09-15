@@ -9,6 +9,14 @@ function safeName(value) {
   return String(value || "unknown").replace(/[^a-zA-Z0-9._-]+/g, "-").slice(0, 100);
 }
 
+function pageUrlOrigin(url) {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+
 async function writeDiagnostics({ page, adapter, request, error }) {
   if (!request.diagnosticsDir) return null;
   await fs.mkdir(request.diagnosticsDir, { recursive: true });
@@ -78,6 +86,8 @@ export class BrowserWorker {
     const executionId = request.executionId || `turn:${request.sessionId || "session"}:${request.turnId || "turn"}`;
     let lease = null;
     let page;
+    let onPopup = null;
+    let resolveCapturePage = null;
     const assertLease = () => this.manager.assertPageLease?.(request.providerId, {
       threadKey: request.threadKey || null,
       executionId,
@@ -146,6 +156,32 @@ export class BrowserWorker {
         });
       }
       await request.checkpoint?.("submitting", { providerId: request.providerId, threadKey: request.threadKey || null });
+      // Some providers (e.g. Kimi) move the submitted conversation into a newly
+      // opened tab while the original tab falls back to the site homepage, so
+      // the response capture must follow pages opened by the submission itself.
+      const submissionOrigin = pageUrlOrigin(page.url()) || pageUrlOrigin(adapter.url);
+      const openedPages = [];
+      onPopup = (popupPage) => {
+        if (!popupPage) return;
+        const popupOrigin = pageUrlOrigin(popupPage.url());
+        if (submissionOrigin && popupOrigin && popupOrigin !== submissionOrigin) return;
+        openedPages.push(popupPage);
+      };
+      page.on?.("popup", onPopup);
+      let followPage = null;
+      resolveCapturePage = () => {
+        if (followPage && !followPage.isClosed()) return followPage;
+        followPage = null;
+        while (openedPages.length > 0) {
+          const candidate = openedPages[openedPages.length - 1];
+          if (!candidate.isClosed()) {
+            followPage = candidate;
+            break;
+          }
+          openedPages.pop();
+        }
+        return followPage || page;
+      };
       const submission = await adapter.submit(page, composer, {
         timeoutMs: Math.min(12000, composerTimeout),
         signal: request.signal,
@@ -160,6 +196,7 @@ export class BrowserWorker {
       const capture = await waitForCompletedResponse({
         page,
         adapter,
+        resolvePage: resolveCapturePage,
         baselineCandidates: baseline,
         timeoutMs: request.timeoutMs || 180000,
         settleMs: request.settleMs || 3000,
@@ -188,7 +225,7 @@ export class BrowserWorker {
           status: capture.status || (capture.complete === false ? "streaming" : "complete"),
           observedBusy: capture.observedBusy,
           settledAt: capture.settledAt,
-          url: page.url(),
+          url: (followPage && !followPage.isClosed() ? followPage : page).url(),
           submission,
         },
       };
@@ -204,7 +241,9 @@ export class BrowserWorker {
           }
         }
       }
-      const diagnostics = leaseRejected ? null : await writeDiagnostics({ page, adapter, request, error: classifiedError });
+      const diagnostics = leaseRejected
+        ? null
+        : await writeDiagnostics({ page: resolveCapturePage ? resolveCapturePage() : page, adapter, request, error: classifiedError });
       if (["LOGIN_REQUIRED", "HUMAN_VERIFICATION_REQUIRED"].includes(classifiedError?.code)) {
         this.manager.forgetPage(request.providerId, page, { threadKey: request.threadKey || null });
       }
@@ -220,6 +259,9 @@ export class BrowserWorker {
         diagnostics,
       });
     } finally {
+      if (onPopup && page.off) {
+        try { page.off("popup", onPopup); } catch {}
+      }
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       await releaseLease();
     }
