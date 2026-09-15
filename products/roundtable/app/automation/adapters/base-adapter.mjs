@@ -28,6 +28,7 @@ export class BaseProviderAdapter {
     ];
     this.humanVerificationFramePattern = config.humanVerificationFramePattern
       || /(?:verifycenter|captcha|recaptcha|hcaptcha|challenges\.cloudflare\.com\/turnstile)/i;
+    this.minSettleMs = config.minSettleMs || 0;
   }
 
   describe() {
@@ -179,8 +180,25 @@ export class BaseProviderAdapter {
           selector: composer.selector,
         });
       }
+      // Ad/feature promo overlays (e.g. doubao's "多条消息支持列队发送" modal,
+      // observed 2026-09-15) intercept pointer events over the composer.
+      // Dismiss proactively before touching the page instead of waiting for
+      // the click to fail; the reactive dismissal below remains as fallback.
+      await this.dismissBlockingOverlay(page);
       await composer.locator.scrollIntoViewIfNeeded();
-      await composer.locator.click({ timeout: 5000 });
+      try {
+        await composer.locator.click({ timeout: 5000 });
+      } catch (clickError) {
+        // Transient promo/dialog overlays can intercept pointer events before
+        // the click lands (doubao radix dialog observed 2026-09-15 caused
+        // COMPOSER_STALE). Try to dismiss the overlay once, then retry.
+        const dismissed = await this.dismissBlockingOverlay(page);
+        if (!dismissed) throw clickError;
+        if (!(await composer.locator.isVisible()) || !(await composer.locator.isEditable())) {
+          throw clickError;
+        }
+        await composer.locator.click({ timeout: 5000 });
+      }
       await composer.locator.fill(prompt, { timeout: 10000 });
     } catch (error) {
       if (error instanceof AutomationError) throw error;
@@ -203,6 +221,39 @@ export class BaseProviderAdapter {
         expectedPreview: expected.slice(0, 160),
       });
     }
+  }
+
+  async dismissBlockingOverlay(page) {
+    const overlaySelectors = [
+      "[role='dialog']",
+      "[data-slot='dialog-content']",
+      "[class*='dialogMask']",
+      "[class*='modal-mask']",
+    ];
+    for (const selector of overlaySelectors) {
+      const locator = page.locator(selector).first();
+      try {
+        if (!(await locator.count()) || !(await locator.isVisible())) continue;
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(500);
+        if (!(await locator.isVisible())) return true;
+        const close = locator.locator(
+          "button[aria-label*='close' i], button[aria-label*='关闭'], [class*='close']",
+        ).first();
+        try {
+          if (await close.isVisible()) {
+            await close.click({ timeout: 1500 });
+            await page.waitForTimeout(500);
+            if (!(await locator.isVisible())) return true;
+          }
+        } catch {
+          // fall through to the next overlay selector
+        }
+      } catch {
+        // ignore this selector and keep trying
+      }
+    }
+    return false;
   }
 
   async submit(page, composer, { timeoutMs = 10000, signal } = {}) {

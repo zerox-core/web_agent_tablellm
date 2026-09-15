@@ -83,6 +83,23 @@ test("browser worker ignores baseline replies on a reused provider page", { time
   assert.doesNotMatch(second.text, /first prompt/);
 });
 
+test("browser worker dismisses promo overlays before prompt insertion and reconnects via reload", { timeout: 30000 }, async (t) => {
+  const { worker } = await createFixture(t, (baseUrl) => ({ doubao: `${baseUrl}/doubao?promo=1` }));
+  const result = await worker.execute({
+    sessionId: "fake-session",
+    planId: "fake-plan",
+    turnId: "doubao-promo-overlay",
+    providerId: "doubao",
+    prompt: "promo overlay dismissal check",
+    round: 1,
+    timeoutMs: 20000,
+    settleMs: 120,
+    autoSend: true,
+    autoCapture: true,
+  });
+  assert.match(result.text, /FAKE_RESPONSE\[doubao\]#1/);
+});
+
 test("browser worker distinguishes Doubao replies that reuse the same data-testid", { timeout: 30000 }, async (t) => {
   const { root, worker } = await createFixture(t);
   const common = {

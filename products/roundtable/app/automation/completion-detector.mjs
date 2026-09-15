@@ -76,11 +76,23 @@ export async function waitForCompletedResponse({
   let latestText = "";
   let changedAt = 0;
   let observedBusy = false;
+  let lastOverlayCheckAt = 0;
   const progressReporter = createProgressReporter({ onProgress, throttleMs: progressThrottleMs });
 
   while (Date.now() < deadline) {
     throwIfAborted(signal);
     const current = resolvePage ? await resolvePage(page) : page;
+    // Ad/feature promo overlays can appear mid-capture and block the response
+    // area; patrol and dismiss them every ~2s so capture keeps working behind
+    // the scenes instead of timing out behind a modal.
+    if (typeof adapter.dismissBlockingOverlay === "function" && Date.now() - lastOverlayCheckAt >= 2000) {
+      lastOverlayCheckAt = Date.now();
+      try {
+        await adapter.dismissBlockingOverlay(current);
+      } catch {
+        // best-effort patrol: never fail capture because of a dismissal error
+      }
+    }
     await adapter.assertAutomationReady?.(current, { phase: "wait_for_response" });
     const [candidates, busy] = await Promise.all([
       adapter.collectResponseCandidates(current),

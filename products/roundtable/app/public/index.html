@@ -40,8 +40,11 @@
       <div class="workspace-layout">
         <aside class="seat-sidebar" aria-label="模型席位">
           <div class="panel-heading">
-            <div><small>圆桌成员</small><h2>模型席位</h2></div>
-            <button id="addParticipantButton" class="icon-button" type="button" title="模型入席" aria-label="模型入席">＋</button>
+            <div><small>ROUNDTABLE · 圆桌成员</small><h2>模型席位</h2></div>
+            <div class="seat-heading-actions">
+              <span id="seatCount" class="count-badge">0</span>
+              <button id="addParticipantButton" class="icon-button" type="button" title="模型入席" aria-label="模型入席">＋</button>
+            </div>
           </div>
           <div id="participantList" class="participant-list empty-state">
             <p>创建圆桌后选择模型入席</p>

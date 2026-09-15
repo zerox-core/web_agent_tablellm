@@ -9,6 +9,11 @@ export class GlmAdapter extends BaseProviderAdapter {
       id: "glm",
       label: "GLM",
       url,
+      // GLM can pause mid-answer for several seconds with no busy indicator
+      // (observed 2026-09-15): the default 3s settle fires during the stall and
+      // captures truncated text. Raise this adapter's settle floor to 8s so the
+      // answer must be truly still before capture completes.
+      minSettleMs: 8000,
       inputSelectors: [
         "textarea[placeholder*='发送']",
         "textarea[placeholder*='发消息']",

@@ -24,13 +24,17 @@ export class DoubaoAdapter extends BaseProviderAdapter {
         "button[class*='send']",
         "button:has-text('发送')",
       ],
+      // Loose fallback selectors are scoped to <main>: doubao renders the
+      // auto-generated chat title in the left conversation list (outside main,
+      // observed 2026-09-15) and an unscoped [class*='markdown'] match captured
+      // the 25-byte title instead of the real answer.
       responseSelectors: [
         "[data-copy-telemetry='right_click_copy'] [data-message-id]",
-        "[data-testid='message-assistant']",
-        "[data-testid*='message'][data-testid*='assistant']",
-        ".flow-markdown-body",
-        "[class*='markdown']:not([contenteditable='true'])",
-        "[class*='answer-content']",
+        "main [data-testid='message-assistant']",
+        "main [data-testid*='message'][data-testid*='assistant']",
+        "main .flow-markdown-body",
+        "main [class*='markdown']:not([contenteditable='true'])",
+        "main [class*='answer-content']",
       ],
       busySelectors: [
         "[data-testid='stop-button']",

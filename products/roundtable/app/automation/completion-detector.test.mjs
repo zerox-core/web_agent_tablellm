@@ -115,6 +115,32 @@ test("Doubao adapter prioritizes known chat input variants before generic fallba
   ]);
 });
 
+test("completion detector patrols and dismisses promo overlays during capture", async () => {
+  const chatPage = { id: "chat" };
+  const dismissCalls = [];
+  const adapter = {
+    id: "doubao",
+    label: "Doubao",
+    async collectResponseCandidates() {
+      return [{ selector: ".reply", index: 0, identity: "reply-1", text: "final answer behind overlay" }];
+    },
+    async isBusy() { return false; },
+    async dismissBlockingOverlay(pageArg) { dismissCalls.push(pageArg); },
+  };
+
+  const result = await waitForCompletedResponse({
+    page: chatPage,
+    adapter,
+    timeoutMs: 2000,
+    settleMs: 15,
+    pollMs: 5,
+  });
+
+  assert.equal(result.text, "final answer behind overlay");
+  assert.ok(dismissCalls.length >= 1, "overlay patrol should run during capture");
+  assert.ok(dismissCalls.every((p) => p === chatPage), "patrol must target the capture page");
+});
+
 test("completion detector follows the capture page through resolvePage", async () => {
   const mainPage = { id: "main" };
   const chatPage = { id: "chat" };

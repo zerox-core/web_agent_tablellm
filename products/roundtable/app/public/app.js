@@ -224,12 +224,15 @@ function capacityFor(thread) {
 
 function renderParticipants() {
   const root = $("#participantList");
+  const seatCount = $("#seatCount");
   if (!state.session?.participants?.length) {
     root.className = "participant-list empty-state";
     root.innerHTML = "<p>创建圆桌后选择模型入席</p>";
+    if (seatCount) seatCount.textContent = "0";
     return;
   }
   root.className = "participant-list";
+  if (seatCount) seatCount.textContent = String(state.session.participants.length);
   root.innerHTML = state.session.participants.map((participant) => {
     const thread = state.session.threads?.[participant.id];
     const status = resolveThreadStatus(thread, state.health?.browser?.bindings);
@@ -238,11 +241,22 @@ function renderParticipants() {
     const role = state.session.participantRoles?.[participant.id] || "";
     const total = state.session.events?.length || 0;
     const synced = Math.min(total, Math.max(0, cursor + 1));
+    const capacityTone = capacity.percent >= 90 ? "is-urgent" : capacity.percent >= 72 ? "is-warn" : "";
     return `
       <div class="participant-row" data-provider-id="${escapeHtml(participant.id)}" title="${escapeHtml(status.detail || "")}">
-        <span class="participant-avatar">${escapeHtml(participant.label.slice(0, 2))}<i class="${status.className}"></i></span>
-        <span class="participant-info"><strong>${escapeHtml(participant.label)}</strong><small>${escapeHtml(status.label)} · 同步 ${synced}/${total}${role ? ` · ${escapeHtml(role)}` : ""}</small><span class="participant-progress"><i style="width:${capacity.percent}%"></i></span></span>
-        <button class="participant-menu" type="button" aria-label="${escapeHtml(participant.label)} 席位菜单">•••</button>
+        <div class="participant-head">
+          <span class="participant-avatar">${escapeHtml(participant.label.slice(0, 2))}<i class="${status.className}"></i></span>
+          <span class="participant-info">
+            <strong>${escapeHtml(participant.label)}</strong>
+            <span class="participant-meta"><em class="seat-pill ${status.className}">${escapeHtml(status.label)}</em><small>同步 ${synced}/${total}</small></span>
+          </span>
+          <button class="participant-menu" type="button" aria-label="${escapeHtml(participant.label)} 席位菜单">•••</button>
+        </div>
+        ${role ? `<span class="participant-role" title="${escapeHtml(role)}">${escapeHtml(role)}</span>` : ""}
+        <span class="participant-meter" title="上下文容量 ${capacity.percent}% · ${escapeHtml(capacity.recommendation)}">
+          <span class="participant-progress"><i class="${capacityTone}" style="width:${capacity.percent}%"></i></span>
+          <small>上下文 ${capacity.percent}% · ${escapeHtml(capacity.recommendation)}</small>
+        </span>
         <span class="participant-actions">
           <button type="button" data-action="reconnect">重新登录/刷新</button>
           <button type="button" data-action="role">设置角色</button>

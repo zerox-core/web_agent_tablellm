@@ -22,7 +22,7 @@ function pageTemplate(providerId, composerHtml, sendButtonHtml, responseHtml) {
   <body data-fake-provider="${providerId}">
     ${composerHtml}
     ${sendButtonHtml}
-    <div id="responses"></div>
+    <main id="responses"></main>
     <script>
       const providerId = ${JSON.stringify(providerId)};
       let composer = document.querySelector('[data-fake-composer]');
@@ -97,6 +97,14 @@ function pageTemplate(providerId, composerHtml, sendButtonHtml, responseHtml) {
         }, 45);
       }
 
+      if (query.has('promo')) {
+        const overlay = document.createElement('div');
+        overlay.setAttribute('role', 'dialog');
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;';
+        overlay.innerHTML = '<div style="background:#fff;padding:32px;border-radius:12px;"><p>Fake promo dialog</p><button type="button" aria-label="close">close</button></div>';
+        overlay.querySelector('button').addEventListener('click', () => overlay.remove());
+        document.body.append(overlay);
+      }
       send.addEventListener('click', submit);
       function bindComposer(node) {
         node.addEventListener('keydown', (event) => {

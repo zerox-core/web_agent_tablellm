@@ -143,6 +143,15 @@ export class BrowserWorker {
           if (page.isClosed()) {
             this.manager.forgetPage(request.providerId, page, { threadKey: request.threadKey || null });
             page = await this.manager.getPage(request.providerId, { threadKey: request.threadKey || null });
+          } else if (error?.code === "COMPOSER_STALE") {
+            // Promo overlays can leave the composer unreachable even after
+            // dismissal; reload the chat page once for a fresh DOM (nothing
+            // has been sent yet, so reloading is safe) before retrying.
+            try {
+              await page.reload({ waitUntil: "domcontentloaded", timeout: 20000 });
+            } catch {
+              // Reload failure falls through to the plain retry path.
+            }
           }
           await new Promise((resolve) => setTimeout(resolve, 250));
         }
@@ -199,7 +208,7 @@ export class BrowserWorker {
         resolvePage: resolveCapturePage,
         baselineCandidates: baseline,
         timeoutMs: request.timeoutMs || 180000,
-        settleMs: request.settleMs || 3000,
+        settleMs: Math.max(request.settleMs || 3000, adapter.minSettleMs || 0),
         onProgress: this.manager.leaseRegistry
           ? async (progress) => {
             await heartbeatLease();
