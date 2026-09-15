@@ -240,6 +240,35 @@ function updateSeatSpokes() {
     .join("");
 }
 
+// 2026-09-15 R48：东家吸附点按圆桌实际包围盒动态计算。
+// 分隔条拖动 / 窗口缩放会改变圆桌像素尺寸，静态分数坐标贴不住桌沿，
+// 因此每帧从 .table-core 的真实位置反推「座位底边贴桌顶」的吸附点。
+function resolveHostPoint() {
+  const stage = $(".roundtable-stage");
+  const table = $(".table-core");
+  if (!stage || !table) return HOST_POINT;
+  const stageRect = stage.getBoundingClientRect();
+  const tableRect = table.getBoundingClientRect();
+  if (!stageRect.width || !stageRect.height) return HOST_POINT;
+  const seat = $(".seat-node");
+  const seatHalf = (seat?.getBoundingClientRect().height || 104) / 2;
+  const gap = 4;
+  const x = (tableRect.left + tableRect.width / 2 - stageRect.left) / stageRect.width;
+  const y = (tableRect.top - stageRect.top - seatHalf - gap) / stageRect.height;
+  return {
+    x: Math.max(0.06, Math.min(0.94, x)),
+    y: Math.max(0.05, Math.min(0.9, y)),
+  };
+}
+
+function positionHostSnap(point) {
+  const marker = $("#hostSnap");
+  if (!marker) return;
+  const hostPoint = point || resolveHostPoint();
+  marker.style.left = `${hostPoint.x * 100}%`;
+  marker.style.top = `calc(${hostPoint.y * 100}% - 21px)`;
+}
+
 function renderParticipants() {
   const root = $("#participantList");
   const seatCount = $("#seatCount");
@@ -360,11 +389,14 @@ function applyNodePositions() {
 function animateRoundtable(now) {
   const dt = Math.min(0.05, (now - state.lastFrame) / 1000 || 1 / 60);
   state.lastFrame = now;
+  const hostPoint = resolveHostPoint();
+  positionHostSnap(hostPoint);
   if (state.layoutNodes.length && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
     state.layoutNodes = stepRoundtablePhysics(state.layoutNodes, {
       dt,
       draggingId: state.dragging?.id || null,
       hostId: state.session?.hostId || null,
+      hostPoint,
     });
     applyNodePositions();
   }
@@ -1469,11 +1501,12 @@ window.addEventListener("pointerup", async (event) => {
   if (!state.dragging || event.pointerId !== state.dragging.pointerId || !state.session) return;
   const draggedId = state.dragging.id;
   state.dragging = null;
-  const snapped = findSnappedHost(state.layoutNodes);
+  const hostPoint = resolveHostPoint();
+  const snapped = findSnappedHost(state.layoutNodes, 0.08, hostPoint);
   if (snapped === draggedId) {
     const node = state.layoutNodes.find((candidate) => candidate.id === snapped);
-    node.x = HOST_POINT.x;
-    node.y = HOST_POINT.y;
+    node.x = hostPoint.x;
+    node.y = hostPoint.y;
   }
   const layout = Object.fromEntries(state.layoutNodes.map((node) => [node.id, { x: node.x, y: node.y }]));
   try {

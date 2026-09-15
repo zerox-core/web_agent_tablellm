@@ -1,11 +1,11 @@
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
-export const HOST_POINT = Object.freeze({ x: 0.5, y: 0.12 });
+export const HOST_POINT = Object.freeze({ x: 0.5, y: 0.22 });
 
-export function findSnappedHost(nodes, threshold = 0.115) {
+export function findSnappedHost(nodes, threshold = 0.08, point = HOST_POINT) {
   let best = null;
   for (const node of nodes || []) {
-    const distance = Math.hypot(node.x - HOST_POINT.x, node.y - HOST_POINT.y);
+    const distance = Math.hypot(node.x - point.x, node.y - point.y);
     if (distance <= threshold && (!best || distance < best.distance)) best = { id: node.id, distance };
   }
   return best?.id || null;
@@ -17,24 +17,29 @@ export function stepRoundtablePhysics(nodes, {
   hostId = null,
   center = { x: 0.5, y: 0.47 },
   ringRadius = 0.34,
+  hostPoint = HOST_POINT,
 } = {}) {
   const next = nodes.map((node) => ({ ...node, vx: Number(node.vx || 0), vy: Number(node.vy || 0) }));
   const safeDt = clamp(dt, 1 / 240, 1 / 20);
   for (let index = 0; index < next.length; index += 1) {
     const node = next[index];
     if (node.id === draggingId) continue;
-    const dx = node.x - center.x;
-    const dy = node.y - center.y;
-    const distance = Math.max(0.001, Math.hypot(dx, dy));
-    const radialError = distance - ringRadius;
-    const tableStrength = 8.5;
-    node.vx += (-dx / distance) * radialError * tableStrength * safeDt;
-    node.vy += (-dy / distance) * radialError * tableStrength * safeDt;
+    // 2026-09-15 R48：东家钉在吸附点上，豁免圆环径向力——否则环的向外推力
+    // 会把东家顶离动态吸附点几十像素，桌沿贴合失效。
+    if (node.id !== hostId) {
+      const dx = node.x - center.x;
+      const dy = node.y - center.y;
+      const distance = Math.max(0.001, Math.hypot(dx, dy));
+      const radialError = distance - ringRadius;
+      const tableStrength = 8.5;
+      node.vx += (-dx / distance) * radialError * tableStrength * safeDt;
+      node.vy += (-dy / distance) * radialError * tableStrength * safeDt;
+    }
 
-    if (node.id === hostId || Math.hypot(node.x - HOST_POINT.x, node.y - HOST_POINT.y) < 0.13) {
+    if (node.id === hostId || Math.hypot(node.x - hostPoint.x, node.y - hostPoint.y) < 0.07) {
       const hostStrength = node.id === hostId ? 15 : 6;
-      node.vx += (HOST_POINT.x - node.x) * hostStrength * safeDt;
-      node.vy += (HOST_POINT.y - node.y) * hostStrength * safeDt;
+      node.vx += (hostPoint.x - node.x) * hostStrength * safeDt;
+      node.vy += (hostPoint.y - node.y) * hostStrength * safeDt;
     }
 
     for (let otherIndex = index + 1; otherIndex < next.length; otherIndex += 1) {
