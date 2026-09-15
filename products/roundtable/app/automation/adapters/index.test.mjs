@@ -61,3 +61,24 @@ test("kimi and glm response selectors are scoped to assistant bubbles", () => {
     }
   }
 });
+
+test("glm busy selectors cover the GLM thinking shimmer placeholder", () => {
+  const glm = createProviderAdapters().get("glm");
+  const shimmerSelectors = glm.busySelectors.filter((selector) => selector.includes(".shimmer"));
+  assert.ok(shimmerSelectors.length >= 2, "glm busy selectors must include shimmer placeholders");
+  for (const selector of shimmerSelectors) {
+    assert.match(selector, /assistant|markdown/i, `shimmer selector must be assistant-scoped: ${selector}`);
+  }
+});
+
+test("glm isBusy treats a visible thinking header as busy", async () => {
+  const glm = createProviderAdapters().get("glm");
+  const makePage = (thinking) => ({
+    locator() {
+      return { first: () => ({ async count() { return 0; } }) };
+    },
+    async evaluate() { return thinking; },
+  });
+  assert.equal(await glm.isBusy(makePage(true)), true);
+  assert.equal(await glm.isBusy(makePage(false)), false);
+});

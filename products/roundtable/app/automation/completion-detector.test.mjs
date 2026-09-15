@@ -5,6 +5,7 @@ import {
   normalizeResponseText,
   responseStructureComplete,
   selectNewResponseCandidate,
+  isTransientPlaceholderText,
   waitForCompletedResponse,
 } from "./completion-detector.mjs";
 import { ChatGptAdapter } from "./adapters/chatgpt.mjs";
@@ -147,4 +148,39 @@ test("completion detector follows the capture page through resolvePage", async (
 
   assert.equal(result.text, "popup captured");
   assert.ok(assertPages.includes(chatPage));
+});
+
+test("completion detector rejects transient thinking placeholders as final replies", () => {
+  assert.equal(isTransientPlaceholderText("正在思考"), true);
+  assert.equal(isTransientPlaceholderText("思考中…"), true);
+  assert.equal(isTransientPlaceholderText("Thinking..."), true);
+  assert.equal(isTransientPlaceholderText("正在生成回复"), true);
+  assert.equal(isTransientPlaceholderText("正在深度思考…"), true);
+  assert.equal(isTransientPlaceholderText("下面聊聊关于思考的一些方法"), false);
+  assert.equal(isTransientPlaceholderText("链路正常"), false);
+});
+
+test("completion detector waits out a GLM-style thinking placeholder", async () => {
+  let polls = 0;
+  const adapter = {
+    id: "glm",
+    label: "GLM",
+    async assertAutomationReady() {},
+    async collectResponseCandidates() {
+      polls += 1;
+      return [{ selector: "[class*='markdown']", index: 0, identity: "reply-new", text: polls < 10 ? "正在思考" : "链路正常" }];
+    },
+    async isBusy() { return false; },
+  };
+
+  const result = await waitForCompletedResponse({
+    page: {},
+    adapter,
+    timeoutMs: 2000,
+    settleMs: 15,
+    pollMs: 5,
+  });
+
+  assert.equal(result.text, "链路正常");
+  assert.ok(polls >= 10);
 });

@@ -26,6 +26,22 @@ export function selectNewResponseCandidate(candidates, baselineCandidates = []) 
   return null;
 }
 
+const TRANSIENT_PLACEHOLDER_PATTERNS = [
+  /^正在思考[…。.]?$/,
+  /^思考中[…。.]?$/,
+  /^正在深度思考[…。.]?$/,
+  /^深度思考中[…。.]?$/,
+  /^正在生成(回复)?[中…。.]?$/,
+  /^正在回复[…。.]?$/,
+  /^正在输入[…。.]?$/,
+  /^thinking[….\.]*$/i,
+];
+
+export function isTransientPlaceholderText(text) {
+  const source = normalizeResponseText(text);
+  if (!source) return false;
+  return TRANSIENT_PLACEHOLDER_PATTERNS.some((pattern) => pattern.test(source));
+}
 export function responseStructureComplete(text) {
   const source = normalizeResponseText(text);
   const fencedJson = /^```(?:json|jsonl)?\s*/i.test(source);
@@ -83,7 +99,7 @@ export async function waitForCompletedResponse({
         identity: candidate.identity,
       });
     }
-    if (latest && !busy && responseStructureComplete(latestText) && Date.now() - changedAt >= settleMs) {
+    if (latest && !busy && !isTransientPlaceholderText(latestText) && responseStructureComplete(latestText) && Date.now() - changedAt >= settleMs) {
       return {
         ...latest,
         observedBusy,

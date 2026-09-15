@@ -55,7 +55,24 @@ function pageTemplate(providerId, composerHtml, sendButtonHtml, responseHtml) {
           window.open(location.origin + '/' + providerId + '/popup-view', '_blank');
           return;
         }
-        sequence += 1;
+        if (query.has('thinking')) {
+          sequence += 1;
+          const wrapper = document.createElement('div');
+          wrapper.innerHTML = responseMarkup;
+          const responseNode = wrapper.firstElementChild;
+          responseNode.dataset.fakeSequence = String(sequence);
+          document.querySelector('#responses').append(responseNode);
+          const ph = document.createElement('span');
+          ph.className = 'shimmer';
+          ph.textContent = '正在思考';
+          responseNode.append(ph);
+          const finalText = 'FAKE_RESPONSE[' + providerId + ']#' + sequence + ': ' + prompt;
+          setTimeout(() => {
+            ph.remove();
+            responseNode.textContent = finalText;
+          }, 600);
+          return;
+        }        sequence += 1;
         const wrapper = document.createElement('div');
         wrapper.innerHTML = responseMarkup;
         const responseNode = wrapper.firstElementChild;

@@ -226,3 +226,22 @@ test("browser worker follows a conversation moved into a popup tab", { timeout: 
   assert.match(result.text, /FAKE_RESPONSE\[chatgpt\]#1/);
   assert.match(result.capture.url, /\/popup-view/);
 });
+
+test("browser worker waits out a GLM-style thinking placeholder without a stop button", { timeout: 30000 }, async (t) => {
+  const { root, worker } = await createFixture(t, (baseUrl) => ({ chatgpt: `${baseUrl}/chatgpt?thinking=1` }));
+  const result = await worker.execute({
+    sessionId: "fake-session",
+    planId: "fake-plan",
+    turnId: "thinking-turn",
+    providerId: "chatgpt",
+    prompt: "thinking placeholder test",
+    round: 1,
+    timeoutMs: 10000,
+    settleMs: 120,
+    autoSend: true,
+    autoCapture: true,
+    diagnosticsDir: path.join(root, "diagnostics"),
+  });
+  assert.match(result.text, /FAKE_RESPONSE\[chatgpt\]#1/);
+  assert.doesNotMatch(result.text, /正在思考/);
+});
