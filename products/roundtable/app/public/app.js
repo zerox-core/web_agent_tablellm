@@ -222,7 +222,7 @@ function capacityFor(thread) {
   return { used, percent, recommendation: percent >= 90 ? "尽快交接" : percent >= 72 ? "建议交接" : "可继续" };
 }
 
-const PROVIDER_AVATARS = new Map([["deepseek", "deepseek"], ["glm", "glm"], ["doubao", "dola"], ["kimi", "kimi"], ["gemini", "gemini"]]);
+const PROVIDER_AVATARS = new Map([["deepseek", "deepseek"], ["glm", "glm"], ["doubao", "dola"], ["doubao-cn", "doubao"], ["kimi", "kimi"], ["gemini", "gemini"]]);
 
 function avatarMarkup(providerId, fallbackText) {
   const avatarFile = PROVIDER_AVATARS.get(providerId);

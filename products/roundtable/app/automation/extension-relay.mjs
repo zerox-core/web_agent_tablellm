@@ -16,7 +16,7 @@ export const EXTENSION_RELAY_REQUEST_TYPES = new Set([
 ]);
 export const LEGACY_EXTENSION_VERSION = "0.1.0";
 export const LEGACY_BRIDGE_REVISION = "legacy-sidecar-v1";
-const EXTENSION_PROVIDER_IDS = new Set(["chatgpt", "deepseek", "doubao", "kimi", "glm", "gemini"]);
+const EXTENSION_PROVIDER_IDS = new Set(["chatgpt", "deepseek", "doubao", "doubao-cn", "kimi", "glm", "gemini"]);
 const EXTENSION_RESULT_PROVIDER_IDS = new Set([...EXTENSION_PROVIDER_IDS, "unknown"]);
 const AUTH_REASONS = new Set([
   "authenticated",

@@ -523,7 +523,7 @@ test("extension relay accepts the full mvp provider list for tab discovery", asy
   t.after(() => relay.close());
   registerVerified(relay);
 
-  const providers = ["chatgpt", "deepseek", "doubao", "kimi", "glm", "gemini"];
+  const providers = ["chatgpt", "deepseek", "doubao", "doubao-cn", "kimi", "glm", "gemini"];
   const completion = relay.dispatch({ type: "tabs:discover-providers", providers });
   const command = relay.poll("client-12345678");
   assert.deepEqual(command.request.providers, providers);

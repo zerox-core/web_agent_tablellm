@@ -9,7 +9,7 @@ const SELECTOR_KEYS = ["inputSelectors", "submitSelectors", "responseSelectors",
 test("adapter registry covers every mvp provider", () => {
   const adapters = createProviderAdapters();
   const mvpIds = PROVIDERS.filter((provider) => provider.automation === "mvp").map((provider) => provider.id);
-  assert.deepEqual(mvpIds.sort(), ["chatgpt", "deepseek", "doubao", "gemini", "glm", "kimi"]);
+  assert.deepEqual(mvpIds.sort(), ["chatgpt", "deepseek", "doubao", "doubao-cn", "gemini", "glm", "kimi"]);
   for (const providerId of mvpIds) {
     assert.ok(adapters.has(providerId), `missing adapter for ${providerId}`);
   }
